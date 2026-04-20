@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { getToolsForModule } from './tool-registry'
 import { buildAgendaSystemPrompt } from '@/modules/agenda/prompts/agenda.prompt'
 import { getDayEvents, getDayFreeSlots, getDayEventsAndSlots } from '@/modules/agenda/services/agenda.service'
+import { deleteCalendarEvent } from '@/integrations/google/calendar'
 import type { ModuleKey, ProposedBlock } from '@/types'
 
 interface RunAgentOptions {
@@ -49,6 +50,11 @@ function buildSystemPrompt(module: ModuleKey, ctx: {
   return `Eres el asistente personal de ${ctx.userName}. Módulo: ${module}.`
 }
 
+function parseLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
 async function executeAgendaTool(
   toolName: string,
   args: Record<string, unknown>,
@@ -58,11 +64,12 @@ async function executeAgendaTool(
 
   switch (toolName) {
     case 'get_day_events': {
-      const date = args.date ? new Date(args.date as string) : today
+      const date = args.date ? parseLocalDate(args.date as string) : today
       const events = await getDayEvents(userId, date)
       return {
         date: date.toLocaleDateString('es'),
         events: events.map((e) => ({
+          id: e.id,
           title: e.title,
           start: e.start.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
           end: e.end.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
@@ -74,7 +81,7 @@ async function executeAgendaTool(
     }
 
     case 'get_free_slots': {
-      const date = args.date ? new Date(args.date as string) : today
+      const date = args.date ? parseLocalDate(args.date as string) : today
       const slots = await getDayFreeSlots(userId, date)
       return {
         date: date.toLocaleDateString('es'),
@@ -88,11 +95,12 @@ async function executeAgendaTool(
     }
 
     case 'suggest_day_plan': {
-      const date = args.date ? new Date(args.date as string) : today
+      const date = args.date ? parseLocalDate(args.date as string) : today
       const { events, slots } = await getDayEventsAndSlots(userId, date)
       return {
         date: date.toLocaleDateString('es'),
         existingEvents: events.map((e) => ({
+          id: e.id,
           title: e.title,
           start: e.start.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
           end: e.end.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
@@ -116,6 +124,13 @@ async function executeAgendaTool(
         type: args.type,
         message: 'Bloque propuesto. Esperando confirmación del usuario.',
       }
+    }
+
+    case 'delete_event': {
+      const eventId = args.eventId as string
+      const eventTitle = args.eventTitle as string
+      await deleteCalendarEvent(userId, eventId)
+      return { deleted: true, eventTitle, message: `Evento "${eventTitle}" eliminado de Google Calendar.` }
     }
 
     default:
@@ -157,7 +172,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
 
   for (let i = 0; i < 5; i++) {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'llama-3.3-70b-versatile',
       messages,
       tools: tools.length > 0 ? tools : undefined,
       tool_choice: tools.length > 0 ? 'auto' : undefined,

@@ -29,44 +29,37 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.user.id = user.id
       return session
     },
+  },
+  events: {
     async signIn({ user, account }) {
-      if (account?.provider === 'google' && account.access_token) {
-        await prisma.integration.upsert({
-          where: {
-            userId_provider: {
-              userId: user.id!,
-              provider: 'GOOGLE_CALENDAR',
-            },
-          },
+      if (!user.id || account?.provider !== 'google' || !account.access_token) return
+
+      await Promise.all([
+        prisma.integration.upsert({
+          where: { userId_provider: { userId: user.id, provider: 'GOOGLE_CALENDAR' } },
           update: {
             status: 'CONNECTED',
             accessToken: account.access_token,
-            refreshToken: account.refresh_token,
-            expiresAt: account.expires_at
-              ? new Date(account.expires_at * 1000)
-              : null,
+            refreshToken: account.refresh_token ?? null,
+            expiresAt: account.expires_at ? new Date(account.expires_at * 1000) : null,
             scopes: account.scope?.split(' ') ?? [],
           },
           create: {
-            userId: user.id!,
+            userId: user.id,
             provider: 'GOOGLE_CALENDAR',
             status: 'CONNECTED',
             accessToken: account.access_token,
-            refreshToken: account.refresh_token,
-            expiresAt: account.expires_at
-              ? new Date(account.expires_at * 1000)
-              : null,
+            refreshToken: account.refresh_token ?? null,
+            expiresAt: account.expires_at ? new Date(account.expires_at * 1000) : null,
             scopes: account.scope?.split(' ') ?? [],
           },
-        })
-
-        await prisma.userPreference.upsert({
-          where: { userId: user.id! },
+        }),
+        prisma.userPreference.upsert({
+          where: { userId: user.id },
           update: {},
-          create: { userId: user.id! },
-        })
-      }
-      return true
+          create: { userId: user.id },
+        }),
+      ])
     },
   },
   pages: {

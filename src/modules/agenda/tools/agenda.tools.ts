@@ -79,6 +79,21 @@ export const agendaTools: OpenAI.Chat.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_event',
+      description: 'Elimina un evento del Google Calendar del usuario. SOLO llamar después de que el usuario haya confirmado explícitamente que quiere borrarlo.',
+      parameters: {
+        type: 'object',
+        properties: {
+          eventId: { type: 'string', description: 'ID del evento de Google Calendar.' },
+          eventTitle: { type: 'string', description: 'Título del evento, para confirmar al usuario.' },
+        },
+        required: ['eventId', 'eventTitle'],
+      },
+    },
+  },
 ]
 
 export type AgendaToolName =
@@ -86,3 +101,4 @@ export type AgendaToolName =
   | 'get_free_slots'
   | 'suggest_day_plan'
   | 'propose_block'
+  | 'delete_event'

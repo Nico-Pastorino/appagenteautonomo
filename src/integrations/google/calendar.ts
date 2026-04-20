@@ -117,6 +117,11 @@ export async function createCalendarEvent(
   return res.data.id ?? ''
 }
 
+export async function deleteCalendarEvent(userId: string, eventId: string): Promise<void> {
+  const calendar = await getCalendarClient(userId)
+  await calendar.events.delete({ calendarId: 'primary', eventId })
+}
+
 export function findFreeSlots(
   events: CalendarEvent[],
   date: Date,

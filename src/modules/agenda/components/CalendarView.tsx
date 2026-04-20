@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { formatTime } from '@/lib/utils'
 import { RefreshCw } from 'lucide-react'
 
@@ -38,11 +38,11 @@ export function CalendarView({ date }: { date: Date }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchEvents = async () => {
+  const fetchEvents = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const dateStr = date.toISOString().split('T')[0]
+      const dateStr = date.toLocaleDateString('sv') // YYYY-MM-DD en hora local
       const res = await fetch(`/api/agenda/events?date=${dateStr}`)
       const data = await res.json()
       if (data.error) throw new Error(data.error)
@@ -53,9 +53,11 @@ export function CalendarView({ date }: { date: Date }) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [date])
 
-  useEffect(() => { fetchEvents() }, [date])
+  useEffect(() => {
+    queueMicrotask(() => { void fetchEvents() })
+  }, [fetchEvents])
 
   if (loading) {
     return (

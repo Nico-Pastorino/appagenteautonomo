@@ -28,7 +28,7 @@ export function Sidebar() {
 
   return (
     <aside
-      className="w-60 h-screen flex flex-col border-r shrink-0"
+      className="hidden md:flex w-60 h-screen flex-col border-r shrink-0"
       style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
     >
       {/* Logo */}

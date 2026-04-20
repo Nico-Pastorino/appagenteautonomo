@@ -9,7 +9,8 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { message, module = 'AGENDA' } = body as { message: string; module: ModuleKey }
+  const { message, module: requestedModule = 'AGENDA' } = body as { message: string; module: ModuleKey }
+  const moduleKey = requestedModule
 
   if (!message?.trim()) {
     return NextResponse.json({ error: 'Mensaje vacío' }, { status: 400 })
@@ -20,13 +21,13 @@ export async function POST(req: NextRequest) {
       where: { userId: session.user.id },
     })
 
-    const conversation = await getOrCreateConversation(session.user.id, module)
+    const conversation = await getOrCreateConversation(session.user.id, moduleKey)
 
     const result = await runAgent({
       userId: session.user.id,
       conversationId: conversation.id,
       userMessage: message,
-      module,
+      module: moduleKey,
       userName: session.user.name ?? 'Usuario',
       timezone: prefs?.timezone ?? 'America/Argentina/Buenos_Aires',
       workdayStart: prefs?.workdayStart ?? '09:00',
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
       conversationId: conversation.id,
     })
   } catch (error) {
+    console.error(error)
     const message = error instanceof Error ? error.message : 'Error desconocido'
     return NextResponse.json({ error: message }, { status: 500 })
   }
@@ -49,10 +51,10 @@ export async function GET(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { searchParams } = new URL(req.url)
-  const module = (searchParams.get('module') ?? 'AGENDA') as ModuleKey
+  const moduleKey = (searchParams.get('module') ?? 'AGENDA') as ModuleKey
 
   const conversation = await prisma.conversation.findFirst({
-    where: { userId: session.user.id, module },
+    where: { userId: session.user.id, module: moduleKey },
     orderBy: { updatedAt: 'desc' },
     include: {
       messages: {

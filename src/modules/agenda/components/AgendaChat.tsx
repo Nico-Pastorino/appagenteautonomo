@@ -123,7 +123,7 @@ export function AgendaChat() {
   }
 
   return (
-    <div className="flex flex-col h-full" style={{ background: 'var(--surface)' }}>
+    <div className="flex flex-col h-full pb-16 md:pb-0" style={{ background: 'var(--surface)' }}>
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => (
@@ -253,7 +253,7 @@ export function AgendaChat() {
           </button>
         </div>
         <p className="text-xs mt-2 text-center" style={{ color: 'var(--muted)' }}>
-          Puedes pedirme: "¿Cómo está mi día?", "Organiza mi tarde", "Agrega un bloque de foco a las 3pm"
+          Puedes pedirme: &quot;¿Cómo está mi día?&quot;, &quot;Organiza mi tarde&quot;, &quot;Agrega un bloque de foco a las 3pm&quot;
         </p>
       </div>
     </div>

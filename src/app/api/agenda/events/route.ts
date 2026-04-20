@@ -8,7 +8,9 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const dateParam = searchParams.get('date')
-  const date = dateParam ? new Date(dateParam) : new Date()
+  const date = dateParam
+    ? (() => { const [y, m, d] = dateParam.split('-').map(Number); return new Date(y, m - 1, d) })()
+    : new Date()
 
   try {
     const [calendarEvents, localBlocks] = await Promise.all([

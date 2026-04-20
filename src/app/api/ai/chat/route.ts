@@ -1,0 +1,67 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@/lib/auth'
+import { runAgent, getOrCreateConversation } from '@/ai/engine'
+import { prisma } from '@/lib/prisma'
+import type { ModuleKey } from '@/types'
+
+export async function POST(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = await req.json()
+  const { message, module = 'AGENDA' } = body as { message: string; module: ModuleKey }
+
+  if (!message?.trim()) {
+    return NextResponse.json({ error: 'Mensaje vacío' }, { status: 400 })
+  }
+
+  try {
+    const prefs = await prisma.userPreference.findUnique({
+      where: { userId: session.user.id },
+    })
+
+    const conversation = await getOrCreateConversation(session.user.id, module)
+
+    const result = await runAgent({
+      userId: session.user.id,
+      conversationId: conversation.id,
+      userMessage: message,
+      module,
+      userName: session.user.name ?? 'Usuario',
+      timezone: prefs?.timezone ?? 'America/Argentina/Buenos_Aires',
+      workdayStart: prefs?.workdayStart ?? '09:00',
+      workdayEnd: prefs?.workdayEnd ?? '18:00',
+    })
+
+    return NextResponse.json({
+      response: result.response,
+      proposedBlock: result.proposedBlock ?? null,
+      conversationId: conversation.id,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error desconocido'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}
+
+export async function GET(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { searchParams } = new URL(req.url)
+  const module = (searchParams.get('module') ?? 'AGENDA') as ModuleKey
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { userId: session.user.id, module },
+    orderBy: { updatedAt: 'desc' },
+    include: {
+      messages: {
+        where: { role: { in: ['USER', 'ASSISTANT'] } },
+        orderBy: { createdAt: 'asc' },
+        take: 50,
+      },
+    },
+  })
+
+  return NextResponse.json({ conversation })
+}

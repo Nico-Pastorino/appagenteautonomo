@@ -1,0 +1,209 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── AUTH ────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  integrations  Integration[]
+  conversations Conversation[]
+  agendaBlocks  AgendaBlock[]
+  preferences   UserPreference?
+  memories      UserMemory[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── INTEGRATIONS ────────────────────────────────────────────
+
+model Integration {
+  id           String              @id @default(cuid())
+  userId       String
+  provider     IntegrationProvider
+  status       IntegrationStatus   @default(DISCONNECTED)
+  accessToken  String?             @db.Text
+  refreshToken String?             @db.Text
+  expiresAt    DateTime?
+  scopes       String[]
+  metadata     Json?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+}
+
+enum IntegrationProvider {
+  GOOGLE_CALENDAR
+  GMAIL
+  WHATSAPP
+  BANK_API
+  PRICE_COMPARATOR
+}
+
+enum IntegrationStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  PENDING
+}
+
+// ─── AGENDA ──────────────────────────────────────────────────
+
+model AgendaBlock {
+  id          String      @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+  type        BlockType   @default(TASK)
+  source      BlockSource @default(USER_CREATED)
+  externalId  String?
+  confirmed   Boolean     @default(false)
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum BlockType {
+  FOCUS
+  MEETING
+  BREAK
+  TASK
+  EXERCISE
+  PERSONAL
+}
+
+enum BlockSource {
+  AI_SUGGESTED
+  USER_CREATED
+  SYNCED_EXTERNAL
+}
+
+// ─── AI ENGINE ───────────────────────────────────────────────
+
+model Conversation {
+  id        String    @id @default(cuid())
+  userId    String
+  module    ModuleKey
+  title     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  messages Message[]
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Message {
+  id             String      @id @default(cuid())
+  conversationId String
+  role           MessageRole
+  content        String      @db.Text
+  toolName       String?
+  toolInput      Json?
+  toolOutput     Json?
+  createdAt      DateTime    @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  TOOL
+}
+
+enum ModuleKey {
+  AGENDA
+  FINANCES
+  AUTOMATION
+  SHOPPING
+  PRODUCTIVITY
+}
+
+// ─── USER MEMORY / PREFERENCES ───────────────────────────────
+
+model UserPreference {
+  id           String @id @default(cuid())
+  userId       String @unique
+  timezone     String @default("UTC")
+  workdayStart String @default("09:00")
+  workdayEnd   String @default("18:00")
+  language     String @default("es")
+  modules      Json   @default("{}")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserMemory {
+  id        String       @id @default(cuid())
+  userId    String
+  module    ModuleKey?
+  key       String
+  value     Json
+  source    MemorySource @default(AI_INFERRED)
+  expiresAt DateTime?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, module, key])
+}
+
+enum MemorySource {
+  AI_INFERRED
+  USER_EXPLICIT
+}

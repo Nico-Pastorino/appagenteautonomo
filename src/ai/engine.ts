@@ -116,11 +116,25 @@ async function executeAgendaTool(
     }
 
     case 'propose_block': {
+      const rawStart = args.startTime as string | null
+      const rawEnd = args.endTime as string | null
+
+      if (!rawStart || !rawEnd) {
+        return { error: 'Faltan startTime o endTime. Especifica la hora de inicio y fin del bloque.' }
+      }
+
+      const startTime = new Date(rawStart)
+      const endTime = new Date(rawEnd)
+
+      if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+        return { error: 'Formato de fecha inválido. Usa ISO 8601, por ejemplo: 2026-04-21T15:00:00.' }
+      }
+
       const block = await confirmAndCreateBlock(userId, {
         title: args.title as string,
         description: args.description as string | undefined,
-        startTime: new Date(args.startTime as string),
-        endTime: new Date(args.endTime as string),
+        startTime,
+        endTime,
         type: args.type as BlockType,
         syncToGoogle: true,
       })
@@ -182,13 +196,12 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   const isSchedulingRequest = schedulingKeywords.test(userMessage)
 
   for (let i = 0; i < 5; i++) {
-    const forcePropose = isSchedulingRequest && i === 0 && !blockCreated
     const completion = await openai.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages,
       tools: tools.length > 0 ? tools : undefined,
-      tool_choice: forcePropose
-        ? { type: 'function', function: { name: 'propose_block' } }
+      tool_choice: (isSchedulingRequest && i === 0 && !blockCreated && tools.length > 0)
+        ? 'required'
         : tools.length > 0 ? 'auto' : undefined,
     })
 
@@ -207,9 +220,14 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     for (const tc of choice.message.tool_calls) {
       const fn = (tc as OpenAI.Chat.ChatCompletionMessageFunctionToolCall).function
       const args = JSON.parse(fn.arguments) as Record<string, unknown>
-      const result = await executeAgendaTool(fn.name, args, userId)
+      let result: unknown
+      try {
+        result = await executeAgendaTool(fn.name, args, userId)
+      } catch (toolError) {
+        result = { error: toolError instanceof Error ? toolError.message : 'Error al ejecutar herramienta' }
+      }
 
-      if (fn.name === 'propose_block') {
+      if (fn.name === 'propose_block' && (result as Record<string, unknown>)?.created) {
         blockCreated = true
       }
 

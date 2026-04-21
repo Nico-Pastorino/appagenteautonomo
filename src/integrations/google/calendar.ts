@@ -28,7 +28,7 @@ async function getCalendarClient(userId: string) {
   const oauth2 = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    process.env.NEXTAUTH_URL + '/api/auth/callback/google'
+    (process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? 'http://localhost:3000') + '/api/auth/callback/google'
   )
 
   if (integration.expiresAt && integration.expiresAt < new Date() && integration.refreshToken) {

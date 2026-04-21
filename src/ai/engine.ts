@@ -3,9 +3,9 @@ import { openai } from '@/lib/openai'
 import { prisma } from '@/lib/prisma'
 import { getToolsForModule } from './tool-registry'
 import { buildAgendaSystemPrompt } from '@/modules/agenda/prompts/agenda.prompt'
-import { getDayEvents, getDayFreeSlots, getDayEventsAndSlots } from '@/modules/agenda/services/agenda.service'
+import { getDayEvents, getDayFreeSlots, getDayEventsAndSlots, confirmAndCreateBlock } from '@/modules/agenda/services/agenda.service'
 import { deleteCalendarEvent } from '@/integrations/google/calendar'
-import type { ModuleKey, ProposedBlock, CalendarEvent, FreeSlot } from '@/types'
+import type { ModuleKey, CalendarEvent, FreeSlot, BlockType } from '@/types'
 import type { Message } from '@prisma/client'
 
 interface RunAgentOptions {
@@ -22,7 +22,7 @@ interface RunAgentOptions {
 
 interface AgentResult {
   response: string
-  proposedBlock?: ProposedBlock
+  blockCreated?: boolean
 }
 
 function buildSystemPrompt(module: ModuleKey, ctx: {
@@ -116,14 +116,21 @@ async function executeAgendaTool(
     }
 
     case 'propose_block': {
+      const block = await confirmAndCreateBlock(userId, {
+        title: args.title as string,
+        description: args.description as string | undefined,
+        startTime: new Date(args.startTime as string),
+        endTime: new Date(args.endTime as string),
+        type: args.type as BlockType,
+        syncToGoogle: true,
+      })
       return {
-        proposed: true,
-        title: args.title,
-        description: args.description,
-        startTime: args.startTime,
-        endTime: args.endTime,
-        type: args.type,
-        message: 'Bloque propuesto. Esperando confirmación del usuario.',
+        created: true,
+        blockId: block.id,
+        title: block.title,
+        startTime: block.startTime.toISOString(),
+        endTime: block.endTime.toISOString(),
+        message: `Bloque "${block.title}" creado exitosamente en tu calendario.`,
       }
     }
 
@@ -169,14 +176,20 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     })),
   ]
 
-  let proposedBlock: ProposedBlock | undefined
+  let blockCreated = false
+
+  const schedulingKeywords = /agrega|crea|añade|programa|coloca|pon|bloque|tarea|reunión|reunion|recordatorio|agendar|agregar|crear|programar/i
+  const isSchedulingRequest = schedulingKeywords.test(userMessage)
 
   for (let i = 0; i < 5; i++) {
+    const forcePropose = isSchedulingRequest && i === 0 && !blockCreated
     const completion = await openai.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages,
       tools: tools.length > 0 ? tools : undefined,
-      tool_choice: tools.length > 0 ? 'auto' : undefined,
+      tool_choice: forcePropose
+        ? { type: 'function', function: { name: 'propose_block' } }
+        : tools.length > 0 ? 'auto' : undefined,
     })
 
     const choice = completion.choices[0]
@@ -186,7 +199,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       await prisma.message.create({
         data: { conversationId, role: 'ASSISTANT', content: finalContent },
       })
-      return { response: finalContent, proposedBlock }
+      return { response: finalContent, blockCreated }
     }
 
     messages.push(choice.message)
@@ -197,13 +210,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       const result = await executeAgendaTool(fn.name, args, userId)
 
       if (fn.name === 'propose_block') {
-        proposedBlock = {
-          title: args.title as string,
-          description: args.description as string | undefined,
-          startTime: args.startTime as string,
-          endTime: args.endTime as string,
-          type: args.type as ProposedBlock['type'],
-        }
+        blockCreated = true
       }
 
       await prisma.message.create({
@@ -225,7 +232,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     }
   }
 
-  return { response: 'No pude completar la solicitud. Intenta de nuevo.', proposedBlock }
+  return { response: 'No pude completar la solicitud. Intenta de nuevo.', blockCreated }
 }
 
 export async function getOrCreateConversation(userId: string, module: ModuleKey) {

@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       response: result.response,
-      proposedBlock: result.proposedBlock ?? null,
+      blockCreated: result.blockCreated ?? false,
       conversationId: conversation.id,
     })
   } catch (error) {

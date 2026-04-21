@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send, Loader2, Bot, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { BLOCK_TYPE_LABELS, type ProposedBlock } from '@/types'
 
 interface Message {
   id: string
@@ -23,7 +22,6 @@ export function AgendaChat() {
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [proposedBlock, setProposedBlock] = useState<ProposedBlock | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -66,8 +64,8 @@ export function AgendaChat() {
         },
       ])
 
-      if (data.proposedBlock) {
-        setProposedBlock(data.proposedBlock)
+      if (data.blockCreated) {
+        window.dispatchEvent(new CustomEvent('block-created'))
       }
     } catch (err) {
       setMessages((prev) => [
@@ -81,44 +79,6 @@ export function AgendaChat() {
       ])
     } finally {
       setLoading(false)
-    }
-  }
-
-  const handleConfirmBlock = async (syncToGoogle: boolean) => {
-    if (!proposedBlock) return
-
-    try {
-      const res = await fetch('/api/agenda/blocks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...proposedBlock, syncToGoogle }),
-      })
-
-      const data = await res.json()
-
-      if (data.error) throw new Error(data.error)
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: `✅ Perfecto, creé el bloque "${proposedBlock.title}"${syncToGoogle ? ' y lo agregué a tu Google Calendar' : ''}. ¿Necesitas algo más?`,
-          createdAt: new Date(),
-        },
-      ])
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: `No pude crear el bloque: ${err instanceof Error ? err.message : 'Error'}`,
-          createdAt: new Date(),
-        },
-      ])
-    } finally {
-      setProposedBlock(null)
     }
   }
 
@@ -182,46 +142,6 @@ export function AgendaChat() {
 
         <div ref={bottomRef} />
       </div>
-
-      {/* Proposed block banner */}
-      {proposedBlock && (
-        <div
-          className="mx-4 mb-2 p-4 rounded-xl border"
-          style={{ background: 'var(--surface-2)', borderColor: 'var(--primary)' }}
-        >
-          <p className="text-xs font-medium mb-2" style={{ color: 'var(--primary)' }}>
-            Bloque propuesto — ¿confirmas?
-          </p>
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1">
-              <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
-                {BLOCK_TYPE_LABELS[proposedBlock.type]} {proposedBlock.title}
-              </p>
-              <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
-                {new Date(proposedBlock.startTime).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                {' — '}
-                {new Date(proposedBlock.endTime).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false })}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setProposedBlock(null)}
-                className="text-xs px-3 py-1.5 rounded-lg transition-colors"
-                style={{ background: 'var(--surface)', color: 'var(--muted)' }}
-              >
-                Rechazar
-              </button>
-              <button
-                onClick={() => handleConfirmBlock(true)}
-                className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors"
-                style={{ background: 'var(--primary)', color: 'white' }}
-              >
-                Confirmar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Input */}
       <div className="p-4 border-t" style={{ borderColor: 'var(--border)' }}>

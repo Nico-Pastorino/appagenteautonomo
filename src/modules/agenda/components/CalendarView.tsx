@@ -71,6 +71,12 @@ export function CalendarView() {
     queueMicrotask(() => { void fetchEvents() })
   }, [fetchEvents])
 
+  useEffect(() => {
+    const handler = () => { void fetchEvents() }
+    window.addEventListener('block-created', handler)
+    return () => window.removeEventListener('block-created', handler)
+  }, [fetchEvents])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-48">

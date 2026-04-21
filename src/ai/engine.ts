@@ -188,6 +188,12 @@ async function executeToolCall(
 
 // ─── Agent loop ───────────────────────────────────────────────────────────────
 
+const SCHEDULING_RE = /\b(agend[aáe]|agendame|agreg[aá]|agregame|program[aá]|programame|bloqu[eé][aá]|bloqueame|reserv[aá]|reservame|anot[aá]|anotame|cre[aá]|ponm?e|pon[eé])\b/i
+
+function detectSchedulingIntent(message: string): boolean {
+  return SCHEDULING_RE.test(message)
+}
+
 export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   const {
     userId, conversationId, userMessage, module,
@@ -220,13 +226,18 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   ]
 
   let blockCreated = false
+  const mustUseTool = tools.length > 0 && detectSchedulingIntent(userMessage)
 
   for (let i = 0; i < 5; i++) {
+    const toolChoice = tools.length > 0
+      ? (mustUseTool && i === 0 ? 'required' : 'auto')
+      : undefined
+
     const completion = await openai.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages,
       tools: tools.length > 0 ? tools : undefined,
-      tool_choice: tools.length > 0 ? 'auto' : undefined,
+      tool_choice: toolChoice,
     })
 
     const choice = completion.choices[0]

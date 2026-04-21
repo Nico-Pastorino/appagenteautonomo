@@ -4,7 +4,6 @@ import { prisma } from '@/lib/prisma'
 import { getToolsForModule, getValidToolNames } from './tool-registry'
 import { buildAgendaSystemPrompt } from '@/modules/agenda/prompts/agenda.prompt'
 import { getDayEvents, getDayFreeSlots, getDayEventsAndSlots, confirmAndCreateBlock } from '@/modules/agenda/services/agenda.service'
-import { deleteCalendarEvent } from '@/integrations/google/calendar'
 import type { ModuleKey, CalendarEvent, FreeSlot, BlockType } from '@/types'
 import type { Message } from '@prisma/client'
 
@@ -65,7 +64,7 @@ async function executeToolCall(
   userId: string,
   validToolNames: Set<string>
 ): Promise<unknown> {
-  // Normalize: llama-3.3-70b on Groq sometimes prefixes tool names with "_"
+  // Normalize: some providers prefix tool names with "_"
   const normalizedName = toolName.replace(/^_+/, '')
 
   if (!validToolNames.has(normalizedName)) {
@@ -170,15 +169,8 @@ async function executeToolCall(
         startTime: block.startTime.toISOString(),
         endTime: block.endTime.toISOString(),
         syncedToGoogle: !!block.externalId,
-        message: `Bloque "${block.title}" creado y sincronizado.`,
+        message: 'Bloque creado y sincronizado con Google Calendar.',
       }
-    }
-
-    case 'delete_event': {
-      const eventId = args.eventId as string
-      const eventTitle = args.eventTitle as string
-      await deleteCalendarEvent(userId, eventId)
-      return { deleted: true, eventTitle, message: `Evento "${eventTitle}" eliminado de Google Calendar.` }
     }
 
     default:
@@ -186,13 +178,15 @@ async function executeToolCall(
   }
 }
 
-// ─── Agent loop ───────────────────────────────────────────────────────────────
+// ─── Scheduling intent detection ──────────────────────────────────────────────
 
 const SCHEDULING_RE = /\b(agend[aáe]|agendame|agreg[aá]|agregame|program[aá]|programame|bloqu[eé][aá]|bloqueame|reserv[aá]|reservame|anot[aá]|anotame|cre[aá]|ponm?e|pon[eé])\b/i
 
-function detectSchedulingIntent(message: string): boolean {
-  return SCHEDULING_RE.test(message)
+function detectSchedulingIntent(msg: string): boolean {
+  return SCHEDULING_RE.test(msg)
 }
+
+// ─── Agent loop ───────────────────────────────────────────────────────────────
 
 export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   const {
@@ -210,7 +204,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   const history = await prisma.message.findMany({
     where: { conversationId, role: { in: ['USER', 'ASSISTANT'] } },
     orderBy: { createdAt: 'asc' },
-    take: 20,
+    take: 10,
   })
 
   const systemPrompt = buildSystemPrompt(module, { userName, timezone, workdayStart, workdayEnd })
@@ -230,13 +224,11 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
 
   for (let i = 0; i < 5; i++) {
     const toolChoice = tools.length > 0
-      ? (mustUseTool && i === 0
-          ? { type: 'function' as const, function: { name: 'propose_block' } }
-          : 'auto')
+      ? (mustUseTool && i === 0 ? 'required' : 'auto')
       : undefined
 
     const completion = await openai.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'gemini-2.0-flash',
       messages,
       tools: tools.length > 0 ? tools : undefined,
       tool_choice: toolChoice,
@@ -246,9 +238,11 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
 
     if (choice.finish_reason === 'stop' || !choice.message.tool_calls?.length) {
       const finalContent = choice.message.content ?? ''
-      await prisma.message.create({
-        data: { conversationId, role: 'ASSISTANT', content: finalContent },
-      })
+      if (finalContent.trim()) {
+        await prisma.message.create({
+          data: { conversationId, role: 'ASSISTANT', content: finalContent },
+        })
+      }
       return { response: finalContent, blockCreated }
     }
 
@@ -261,7 +255,13 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       try {
         args = JSON.parse(fn.arguments) as Record<string, unknown>
       } catch {
-        args = {}
+        const errResult = { error: 'JSON inválido en arguments' }
+        messages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: JSON.stringify(errResult),
+        })
+        continue
       }
 
       let result: unknown

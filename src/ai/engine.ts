@@ -6,6 +6,7 @@ import { buildAgendaSystemPrompt } from '@/modules/agenda/prompts/agenda.prompt'
 import { getDayEvents, getDayFreeSlots, getDayEventsAndSlots } from '@/modules/agenda/services/agenda.service'
 import { deleteCalendarEvent } from '@/integrations/google/calendar'
 import type { ModuleKey, ProposedBlock, CalendarEvent, FreeSlot } from '@/types'
+import type { Message } from '@prisma/client'
 
 interface RunAgentOptions {
   userId: string
@@ -162,7 +163,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
-    ...history.map((m) => ({
+    ...history.map((m: Message) => ({
       role: m.role.toLowerCase() as 'user' | 'assistant',
       content: m.content as string,
     })),

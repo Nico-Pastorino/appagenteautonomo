@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { confirmAndCreateBlock } from '@/modules/agenda/services/agenda.service'
+import { prisma } from '@/lib/prisma'
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -24,6 +25,25 @@ export async function POST(req: NextRequest) {
     })
 
     return NextResponse.json({ block })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error desconocido'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { searchParams } = new URL(req.url)
+  const id = searchParams.get('id')
+  if (!id) return NextResponse.json({ error: 'Falta id' }, { status: 400 })
+
+  try {
+    await prisma.agendaBlock.deleteMany({
+      where: { id, userId: session.user.id },
+    })
+    return NextResponse.json({ deleted: true })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Error desconocido'
     return NextResponse.json({ error: message }, { status: 500 })

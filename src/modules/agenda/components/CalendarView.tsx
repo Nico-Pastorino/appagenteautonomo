@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { formatTime } from '@/lib/utils'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, Trash2 } from 'lucide-react'
 
 interface CalendarEvent {
   id: string
@@ -32,7 +32,8 @@ const BLOCK_COLORS: Record<string, string> = {
   PERSONAL: '#8b5cf6',
 }
 
-export function CalendarView({ date }: { date: Date }) {
+export function CalendarView() {
+  const [date] = useState(() => new Date())
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [blocks, setBlocks] = useState<LocalBlock[]>([])
   const [loading, setLoading] = useState(true)
@@ -42,7 +43,7 @@ export function CalendarView({ date }: { date: Date }) {
     setLoading(true)
     setError(null)
     try {
-      const dateStr = date.toLocaleDateString('sv') // YYYY-MM-DD en hora local
+      const dateStr = date.toLocaleDateString('sv')
       const res = await fetch(`/api/agenda/events?date=${dateStr}`)
       const data = await res.json()
       if (data.error) throw new Error(data.error)
@@ -54,6 +55,17 @@ export function CalendarView({ date }: { date: Date }) {
       setLoading(false)
     }
   }, [date])
+
+  const deleteBlock = async (blockId: string) => {
+    try {
+      const res = await fetch(`/api/agenda/blocks?id=${blockId}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setBlocks((prev) => prev.filter((b) => b.id !== blockId))
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al eliminar')
+    }
+  }
 
   useEffect(() => {
     queueMicrotask(() => { void fetchEvents() })
@@ -145,6 +157,13 @@ export function CalendarView({ date }: { date: Date }) {
               }}>
                 {block.type}
               </span>
+              <button
+                onClick={() => deleteBlock(block.id)}
+                className="p-1 rounded-lg hover:bg-white/10 transition-colors shrink-0"
+                title="Eliminar bloque"
+              >
+                <Trash2 size={13} style={{ color: 'var(--muted)' }} />
+              </button>
             </div>
           ))}
         </div>

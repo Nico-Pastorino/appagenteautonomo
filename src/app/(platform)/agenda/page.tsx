@@ -5,12 +5,11 @@ import { AgendaLayout } from '@/modules/agenda/components/AgendaLayout'
 
 export default async function AgendaPage() {
   const session = await auth()
-  const today = new Date()
 
   return (
     <AgendaLayout
       userName={session?.user?.name ?? 'Usuario'}
-      calendarView={<CalendarView date={today} />}
+      calendarView={<CalendarView />}
       chat={<AgendaChat />}
     />
   )

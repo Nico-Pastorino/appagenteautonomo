@@ -5,7 +5,7 @@ import { getToolsForModule } from './tool-registry'
 import { buildAgendaSystemPrompt } from '@/modules/agenda/prompts/agenda.prompt'
 import { getDayEvents, getDayFreeSlots, getDayEventsAndSlots } from '@/modules/agenda/services/agenda.service'
 import { deleteCalendarEvent } from '@/integrations/google/calendar'
-import type { ModuleKey, ProposedBlock } from '@/types'
+import type { ModuleKey, ProposedBlock, CalendarEvent, FreeSlot } from '@/types'
 
 interface RunAgentOptions {
   userId: string
@@ -99,13 +99,13 @@ async function executeAgendaTool(
       const { events, slots } = await getDayEventsAndSlots(userId, date)
       return {
         date: date.toLocaleDateString('es'),
-        existingEvents: events.map((e) => ({
+        existingEvents: events.map((e: CalendarEvent) => ({
           id: e.id,
           title: e.title,
           start: e.start.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
           end: e.end.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
         })),
-        freeSlots: slots.map((s) => ({
+        freeSlots: slots.map((s: FreeSlot) => ({
           start: s.start.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
           end: s.end.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
           durationMinutes: s.durationMinutes,

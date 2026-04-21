@@ -1,7 +1,7 @@
 import type OpenAI from 'openai'
 import { openai } from '@/lib/openai'
 import { prisma } from '@/lib/prisma'
-import { getToolsForModule } from './tool-registry'
+import { getToolsForModule, getValidToolNames } from './tool-registry'
 import { buildAgendaSystemPrompt } from '@/modules/agenda/prompts/agenda.prompt'
 import { getDayEvents, getDayFreeSlots, getDayEventsAndSlots, confirmAndCreateBlock } from '@/modules/agenda/services/agenda.service'
 import { deleteCalendarEvent } from '@/integrations/google/calendar'
@@ -19,11 +19,12 @@ interface RunAgentOptions {
   workdayEnd?: string
 }
 
-
 interface AgentResult {
   response: string
   blockCreated?: boolean
 }
+
+// ─── System prompt ────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(module: ModuleKey, ctx: {
   userName: string
@@ -51,25 +52,36 @@ function buildSystemPrompt(module: ModuleKey, ctx: {
   return `Eres el asistente personal de ${ctx.userName}. Módulo: ${module}.`
 }
 
+// ─── Tool executor ────────────────────────────────────────────────────────────
+
 function parseLocalDate(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number)
   return new Date(y, m - 1, d)
 }
 
-async function executeAgendaTool(
+async function executeToolCall(
   toolName: string,
   args: Record<string, unknown>,
-  userId: string
+  userId: string,
+  validToolNames: Set<string>
 ): Promise<unknown> {
+  // Normalize: llama-3.3-70b on Groq sometimes prefixes tool names with "_"
+  const normalizedName = toolName.replace(/^_+/, '')
+
+  if (!validToolNames.has(normalizedName)) {
+    console.warn(`[agent] Unknown tool called: "${toolName}" (normalized: "${normalizedName}")`)
+    return { error: `Tool "${normalizedName}" no está disponible. Solo puedes usar: ${[...validToolNames].join(', ')}` }
+  }
+
   const today = new Date()
 
-  switch (toolName) {
+  switch (normalizedName) {
     case 'get_day_events': {
       const date = args.date ? parseLocalDate(args.date as string) : today
       const events = await getDayEvents(userId, date)
       return {
         date: date.toLocaleDateString('es'),
-        events: events.map((e) => ({
+        events: events.map((e: CalendarEvent) => ({
           id: e.id,
           title: e.title,
           start: e.start.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
@@ -86,7 +98,7 @@ async function executeAgendaTool(
       const slots = await getDayFreeSlots(userId, date)
       return {
         date: date.toLocaleDateString('es'),
-        freeSlots: slots.map((s) => ({
+        freeSlots: slots.map((s: FreeSlot) => ({
           start: s.start.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
           end: s.end.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
           durationMinutes: s.durationMinutes,
@@ -116,18 +128,18 @@ async function executeAgendaTool(
     }
 
     case 'propose_block': {
-      const rawStart = args.startTime as string | null
-      const rawEnd = args.endTime as string | null
+      const rawStart = args.startTime as string | null | undefined
+      const rawEnd = args.endTime as string | null | undefined
 
       if (!rawStart || !rawEnd) {
-        return { error: 'Faltan startTime o endTime. Especifica la hora de inicio y fin del bloque.' }
+        return { error: 'Faltan startTime o endTime. Proporciona fecha y hora de inicio y fin en ISO 8601.' }
       }
 
       const startTime = new Date(rawStart)
       const endTime = new Date(rawEnd)
 
       if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
-        return { error: 'Formato de fecha inválido. Usa ISO 8601, por ejemplo: 2026-04-21T15:00:00.' }
+        return { error: `Formato de fecha inválido (recibido: "${rawStart}", "${rawEnd}"). Usa ISO 8601, ej: ${today.toISOString().slice(0, 10)}T15:00:00.` }
       }
 
       const block = await confirmAndCreateBlock(userId, {
@@ -144,7 +156,7 @@ async function executeAgendaTool(
         title: block.title,
         startTime: block.startTime.toISOString(),
         endTime: block.endTime.toISOString(),
-        message: `Bloque "${block.title}" creado exitosamente en tu calendario.`,
+        message: `Bloque "${block.title}" creado exitosamente.`,
       }
     }
 
@@ -156,9 +168,11 @@ async function executeAgendaTool(
     }
 
     default:
-      return { error: `Tool desconocida: ${toolName}` }
+      return { error: `Tool "${normalizedName}" no implementada.` }
   }
 }
+
+// ─── Agent loop ───────────────────────────────────────────────────────────────
 
 export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   const {
@@ -181,6 +195,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
 
   const systemPrompt = buildSystemPrompt(module, { userName, timezone, workdayStart, workdayEnd })
   const tools = getToolsForModule(module)
+  const validToolNames = getValidToolNames(module)
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
@@ -192,17 +207,12 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
 
   let blockCreated = false
 
-  const schedulingKeywords = /agrega|crea|añade|programa|coloca|pon|bloque|tarea|reunión|reunion|recordatorio|agendar|agregar|crear|programar/i
-  const isSchedulingRequest = schedulingKeywords.test(userMessage)
-
   for (let i = 0; i < 5; i++) {
     const completion = await openai.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages,
       tools: tools.length > 0 ? tools : undefined,
-      tool_choice: (isSchedulingRequest && i === 0 && !blockCreated && tools.length > 0)
-        ? 'required'
-        : tools.length > 0 ? 'auto' : undefined,
+      tool_choice: tools.length > 0 ? 'auto' : undefined,
     })
 
     const choice = completion.choices[0]
@@ -219,15 +229,23 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
 
     for (const tc of choice.message.tool_calls) {
       const fn = (tc as OpenAI.Chat.ChatCompletionMessageFunctionToolCall).function
-      const args = JSON.parse(fn.arguments) as Record<string, unknown>
-      let result: unknown
+      let args: Record<string, unknown> = {}
+
       try {
-        result = await executeAgendaTool(fn.name, args, userId)
-      } catch (toolError) {
-        result = { error: toolError instanceof Error ? toolError.message : 'Error al ejecutar herramienta' }
+        args = JSON.parse(fn.arguments) as Record<string, unknown>
+      } catch {
+        args = {}
       }
 
-      if (fn.name === 'propose_block' && (result as Record<string, unknown>)?.created) {
+      let result: unknown
+      try {
+        result = await executeToolCall(fn.name, args, userId, validToolNames)
+      } catch (err) {
+        result = { error: err instanceof Error ? err.message : 'Error al ejecutar herramienta' }
+      }
+
+      const normalizedName = fn.name.replace(/^_+/, '')
+      if (normalizedName === 'propose_block' && (result as Record<string, unknown>)?.created) {
         blockCreated = true
       }
 
@@ -236,7 +254,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
           conversationId,
           role: 'TOOL',
           content: JSON.stringify(result),
-          toolName: fn.name,
+          toolName: normalizedName,
           toolInput: args as unknown as import('@prisma/client').Prisma.InputJsonValue,
           toolOutput: result as unknown as import('@prisma/client').Prisma.InputJsonValue,
         },

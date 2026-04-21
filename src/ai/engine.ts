@@ -128,9 +128,19 @@ async function executeToolCall(
     }
 
     case 'propose_block': {
+      const title = (args.title as string | null | undefined)?.trim()
+      const rawType = args.type as string | null | undefined
       const rawStart = args.startTime as string | null | undefined
       const rawEnd = args.endTime as string | null | undefined
 
+      const VALID_TYPES = new Set<string>(['FOCUS', 'MEETING', 'BREAK', 'TASK', 'EXERCISE', 'PERSONAL'])
+
+      if (!title) {
+        return { error: 'Falta el título del bloque.' }
+      }
+      if (!rawType || !VALID_TYPES.has(rawType)) {
+        return { error: `Tipo inválido "${rawType}". Debe ser uno de: FOCUS, MEETING, BREAK, TASK, EXERCISE, PERSONAL.` }
+      }
       if (!rawStart || !rawEnd) {
         return { error: 'Faltan startTime o endTime. Proporciona fecha y hora de inicio y fin en ISO 8601.' }
       }
@@ -141,13 +151,16 @@ async function executeToolCall(
       if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
         return { error: `Formato de fecha inválido (recibido: "${rawStart}", "${rawEnd}"). Usa ISO 8601, ej: ${today.toISOString().slice(0, 10)}T15:00:00.` }
       }
+      if (endTime <= startTime) {
+        return { error: `endTime debe ser posterior a startTime (inicio: "${rawStart}", fin: "${rawEnd}").` }
+      }
 
       const block = await confirmAndCreateBlock(userId, {
-        title: args.title as string,
+        title,
         description: args.description as string | undefined,
         startTime,
         endTime,
-        type: args.type as BlockType,
+        type: rawType as BlockType,
         syncToGoogle: true,
       })
       return {
@@ -156,7 +169,8 @@ async function executeToolCall(
         title: block.title,
         startTime: block.startTime.toISOString(),
         endTime: block.endTime.toISOString(),
-        message: `Bloque "${block.title}" creado exitosamente.`,
+        syncedToGoogle: !!block.externalId,
+        message: `Bloque "${block.title}" creado y sincronizado.`,
       }
     }
 

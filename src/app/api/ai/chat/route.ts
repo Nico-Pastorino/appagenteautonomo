@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       conversationId: conversation.id,
     })
   } catch (error) {
-    console.error(error)
+    console.error('[ai/chat]', error)
     const message = error instanceof Error ? error.message : 'Error desconocido'
     return NextResponse.json({ error: message }, { status: 500 })
   }

@@ -4,7 +4,6 @@ import { prisma } from '@/lib/prisma'
 import { getToolsForModule, getValidToolNames } from './tool-registry'
 import { buildAgendaSystemPrompt } from '@/modules/agenda/prompts/agenda.prompt'
 import { getDayEvents, getDayFreeSlots, getDayEventsAndSlots, confirmAndCreateBlock } from '@/modules/agenda/services/agenda.service'
-import { deleteCalendarEvent } from '@/integrations/google/calendar'
 import type { ModuleKey, CalendarEvent, FreeSlot, BlockType } from '@/types'
 import type { Message } from '@prisma/client'
 
@@ -65,7 +64,6 @@ async function executeToolCall(
   userId: string,
   validToolNames: Set<string>
 ): Promise<unknown> {
-  // Normalize: llama-3.3-70b on Groq sometimes prefixes tool names with "_"
   const normalizedName = toolName.replace(/^_+/, '')
 
   if (!validToolNames.has(normalizedName)) {
@@ -174,13 +172,6 @@ async function executeToolCall(
       }
     }
 
-    case 'delete_event': {
-      const eventId = args.eventId as string
-      const eventTitle = args.eventTitle as string
-      await deleteCalendarEvent(userId, eventId)
-      return { deleted: true, eventTitle, message: `Evento "${eventTitle}" eliminado de Google Calendar.` }
-    }
-
     default:
       return { error: `Tool "${normalizedName}" no implementada.` }
   }
@@ -210,7 +201,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   const history = await prisma.message.findMany({
     where: { conversationId, role: { in: ['USER', 'ASSISTANT'] } },
     orderBy: { createdAt: 'asc' },
-    take: 20,
+    take: 10,
   })
 
   const systemPrompt = buildSystemPrompt(module, { userName, timezone, workdayStart, workdayEnd })
@@ -234,7 +225,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       : undefined
 
     const completion = await openai.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'gemini-2.0-flash',
       messages,
       tools: tools.length > 0 ? tools : undefined,
       tool_choice: toolChoice,
@@ -244,9 +235,11 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
 
     if (choice.finish_reason === 'stop' || !choice.message.tool_calls?.length) {
       const finalContent = choice.message.content ?? ''
-      await prisma.message.create({
-        data: { conversationId, role: 'ASSISTANT', content: finalContent },
-      })
+      if (finalContent) {
+        await prisma.message.create({
+          data: { conversationId, role: 'ASSISTANT', content: finalContent },
+        })
+      }
       return { response: finalContent, blockCreated }
     }
 
@@ -259,7 +252,8 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       try {
         args = JSON.parse(fn.arguments) as Record<string, unknown>
       } catch {
-        args = {}
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: 'JSON inválido en arguments' }) })
+        continue
       }
 
       let result: unknown

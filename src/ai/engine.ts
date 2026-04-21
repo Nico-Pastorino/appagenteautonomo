@@ -230,7 +230,9 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
 
   for (let i = 0; i < 5; i++) {
     const toolChoice = tools.length > 0
-      ? (mustUseTool && i === 0 ? 'required' : 'auto')
+      ? (mustUseTool && i === 0
+          ? { type: 'function' as const, function: { name: 'propose_block' } }
+          : 'auto')
       : undefined
 
     const completion = await openai.chat.completions.create({

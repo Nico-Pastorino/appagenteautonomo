@@ -46,6 +46,25 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function DELETE(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { searchParams } = new URL(req.url)
+  const moduleKey = (searchParams.get('module') ?? 'AGENDA') as ModuleKey
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { userId: session.user.id, module: moduleKey },
+    orderBy: { updatedAt: 'desc' },
+  })
+
+  if (conversation) {
+    await prisma.message.deleteMany({ where: { conversationId: conversation.id } })
+  }
+
+  return NextResponse.json({ reset: true })
+}
+
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

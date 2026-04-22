@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Send, Loader2, Bot, User } from 'lucide-react'
+import { Send, Loader2, Bot, User, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Message {
@@ -22,7 +22,24 @@ export function AgendaChat() {
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [resetting, setResetting] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  const resetConversation = async () => {
+    if (resetting) return
+    setResetting(true)
+    try {
+      await fetch('/api/ai/chat?module=AGENDA', { method: 'DELETE' })
+      setMessages([{
+        id: 'welcome',
+        role: 'assistant',
+        content: '¡Hola! Soy tu asistente de agenda. Puedo ver tus eventos de Google Calendar, encontrar huecos libres y ayudarte a organizar tu día. ¿Qué quieres hacer hoy?',
+        createdAt: new Date(),
+      }])
+    } finally {
+      setResetting(false)
+    }
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -145,6 +162,18 @@ export function AgendaChat() {
 
       {/* Input */}
       <div className="p-4 border-t" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex justify-end mb-2">
+          <button
+            onClick={resetConversation}
+            disabled={resetting}
+            className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg opacity-50 hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
+            style={{ color: 'var(--muted)' }}
+            title="Nueva conversación"
+          >
+            <Trash2 size={12} />
+            Nueva conversación
+          </button>
+        </div>
         <div
           className="flex gap-2 items-end p-2 rounded-xl border"
           style={{ background: 'var(--surface-2)', borderColor: 'var(--border)' }}

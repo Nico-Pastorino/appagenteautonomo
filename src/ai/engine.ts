@@ -270,11 +270,15 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
         continue
       }
 
+      console.log(`[engine] tool_call: ${fn.name}`, JSON.stringify(args))
+
       let result: unknown
       try {
         result = await executeToolCall(fn.name, args, userId, validToolNames)
+        console.log(`[engine] tool_result: ${fn.name}`, JSON.stringify(result))
       } catch (err) {
         result = { error: err instanceof Error ? err.message : 'Error al ejecutar herramienta' }
+        console.error(`[engine] tool_error: ${fn.name}`, err)
       }
 
       const normalizedName = fn.name.replace(/^_+/, '')

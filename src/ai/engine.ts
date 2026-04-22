@@ -239,7 +239,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       : undefined
 
     const completion = await openai.chat.completions.create({
-      model: 'gemini-2.5-pro',
+      model: 'llama-3.3-70b',
       messages,
       tools: tools.length > 0 ? tools : undefined,
       tool_choice: toolChoice,

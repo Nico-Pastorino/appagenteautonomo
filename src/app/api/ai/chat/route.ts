@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
-import { runAgent, getOrCreateConversation } from '@/ai/engine'
+import { runAgent, getOrCreateConversation } from '@/lib/ai/agent'
 import { prisma } from '@/lib/prisma'
 import type { ModuleKey } from '@/types'
 

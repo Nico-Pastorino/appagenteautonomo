@@ -190,6 +190,7 @@ async function executeToolCall(
 
 const SCHEDULING_RE = /\b(agend[aáe]|agendame|agreg[aá]|agregame|program[aá]|programame|bloqu[eé][aá]|bloqueame|reserv[aá]|reservame|anot[aá]|anotame|cre[aá]|ponm?e|pon[eé])\b/i
 const DELETE_RE = /\b(borr[aá]|borrame|elimin[aá]|eliminame|sac[aá]|sacame|cancel[aá]|cancelame)\b/i
+const QUERY_RE = /\b(qu[eé]\s+tengo|mi\s+agenda|mis\s+eventos|qu[eé]\s+hay|c[oó]mo\s+est[aá]\s+mi|tengo\s+algo|qu[eé]\s+pasa|organiz[aá]me|organiz[aá]\s+mi|plan(eá|ea|ificá)|libre[s]?\s+(hoy|mañana|el)|huecos?\s+libres?)\b/i
 
 function detectSchedulingIntent(message: string): boolean {
   return SCHEDULING_RE.test(message)
@@ -197,6 +198,10 @@ function detectSchedulingIntent(message: string): boolean {
 
 function detectDeleteIntent(message: string): boolean {
   return DELETE_RE.test(message)
+}
+
+function detectQueryIntent(message: string): boolean {
+  return QUERY_RE.test(message)
 }
 
 export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
@@ -231,12 +236,24 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   ]
 
   let blockCreated = false
-  const mustUseTool = tools.length > 0 && (detectSchedulingIntent(userMessage) || detectDeleteIntent(userMessage))
+  const isScheduling = tools.length > 0 && detectSchedulingIntent(userMessage)
+  const isDelete = tools.length > 0 && detectDeleteIntent(userMessage)
+  const isQuery = tools.length > 0 && detectQueryIntent(userMessage)
+  const mustUseTool = isScheduling || isDelete || isQuery
 
   for (let i = 0; i < 5; i++) {
-    const toolChoice = tools.length > 0
-      ? (mustUseTool && i === 0 ? 'required' : 'auto')
-      : undefined
+    let toolChoice: OpenAI.Chat.ChatCompletionToolChoiceOption | undefined
+    if (!tools.length) {
+      toolChoice = undefined
+    } else if (i === 0 && isScheduling) {
+      toolChoice = { type: 'function', function: { name: 'propose_block' } }
+    } else if (i === 0 && isQuery && !isDelete) {
+      toolChoice = { type: 'function', function: { name: 'get_day_events' } }
+    } else if (i === 0 && mustUseTool) {
+      toolChoice = 'required'
+    } else {
+      toolChoice = 'auto'
+    }
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',

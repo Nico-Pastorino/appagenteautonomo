@@ -71,7 +71,9 @@ export async function getEventsForDay(userId: string, date: Date): Promise<Calen
     maxResults: 50,
   })
 
-  return (res.data.items ?? []).map(mapGoogleEvent)
+  const events = (res.data.items ?? []).map(mapGoogleEvent)
+  console.log(`[calendar] EVENTOS REALES userId=${userId} date=${date.toDateString()} →`, JSON.stringify(events.map(e => ({ title: e.title, start: e.start }))))
+  return events
 }
 
 export async function getEventsForRange(

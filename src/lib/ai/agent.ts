@@ -126,12 +126,34 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     console.log(`[agent] finish_reason=${choice.finish_reason} tool_calls=${choice.message.tool_calls?.length ?? 0}`)
 
     if (choice.finish_reason === 'stop' || !choice.message.tool_calls?.length) {
-      const finalContent = choice.message.content ?? ''
-      if (finalContent) {
-        await prisma.message.create({
-          data: { conversationId, role: 'ASSISTANT', content: finalContent },
+      let finalContent = choice.message.content ?? ''
+
+      // gpt-4o-mini sometimes returns null content after tool calls — force a text response
+      if (!finalContent && i > 0) {
+        console.log('[agent] empty content after tool execution — forcing summary call')
+        const summaryCompletion = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            ...messages,
+            {
+              role: 'user',
+              content: 'Confirmame en una sola frase qué acción realizaste o qué encontraste.',
+            },
+          ],
+          tool_choice: 'none',
         })
+        finalContent = summaryCompletion.choices[0].message.content ?? ''
       }
+
+      if (!finalContent) {
+        finalContent = blockCreated
+          ? 'Listo, el evento fue creado en tu calendario.'
+          : 'No encontré información para esa consulta.'
+      }
+
+      await prisma.message.create({
+        data: { conversationId, role: 'ASSISTANT', content: finalContent },
+      })
       console.log(`[agent] done response="${finalContent.slice(0, 80)}"`)
       return { response: finalContent, blockCreated }
     }

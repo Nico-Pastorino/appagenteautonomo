@@ -67,16 +67,24 @@ export function AgendaChat() {
         body: JSON.stringify({ message: text, module: 'AGENDA' }),
       })
 
-      const data = await res.json()
+      let data: { response?: string; error?: string; blockCreated?: boolean }
+      try {
+        data = await res.json()
+      } catch {
+        throw new Error(`El servidor devolvió HTTP ${res.status} (respuesta no JSON). Revisá /api/ai/health`)
+      }
 
-      if (data.error) throw new Error(data.error)
+      if (!res.ok || data.error) {
+        throw new Error(data.error ?? `Error HTTP ${res.status}`)
+      }
 
+      const responseText = data.response?.trim() ?? ''
       setMessages((prev) => [
         ...prev,
         {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
-          content: data.response,
+          content: responseText || '(Sin respuesta del asistente)',
           createdAt: new Date(),
         },
       ])
@@ -85,12 +93,14 @@ export function AgendaChat() {
         window.dispatchEvent(new CustomEvent('block-created'))
       }
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Error desconocido'
+      console.error('[AgendaChat]', errorMsg)
       setMessages((prev) => [
         ...prev,
         {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
-          content: `Lo siento, hubo un error: ${err instanceof Error ? err.message : 'Error desconocido'}`,
+          content: `Error: ${errorMsg}`,
           createdAt: new Date(),
         },
       ])

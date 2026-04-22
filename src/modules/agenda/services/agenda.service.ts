@@ -3,6 +3,7 @@ import {
   getEventsForDay,
   getEventsForRange,
   createCalendarEvent,
+  deleteCalendarEvent,
   findFreeSlots,
 } from '@/integrations/google/calendar'
 import { CalendarEvent, FreeSlot } from '@/types'
@@ -73,6 +74,31 @@ export async function confirmAndCreateBlock(
       externalId,
     },
   })
+}
+
+export async function deleteBlockAndEvent(
+  userId: string,
+  id: string
+): Promise<{ deleted: boolean; wasInGoogle: boolean }> {
+  let block = await prisma.agendaBlock.findFirst({ where: { id, userId } })
+  if (!block) {
+    block = await prisma.agendaBlock.findFirst({ where: { externalId: id, userId } })
+  }
+
+  let wasInGoogle = false
+
+  if (block) {
+    if (block.externalId) {
+      const r = await deleteCalendarEvent(userId, block.externalId)
+      wasInGoogle = r.deleted
+    }
+    await prisma.agendaBlock.delete({ where: { id: block.id } })
+  } else {
+    const r = await deleteCalendarEvent(userId, id)
+    wasInGoogle = r.deleted
+  }
+
+  return { deleted: true, wasInGoogle }
 }
 
 export async function getBlocksForDay(userId: string, date: Date) {

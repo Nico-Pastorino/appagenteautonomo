@@ -79,6 +79,23 @@ export const agendaTools: OpenAI.Chat.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_event',
+      description: 'Elimina un evento del calendario del usuario (tanto de la DB local como de Google Calendar). Requiere el ID del evento a eliminar. Si no lo tenés, llamá get_day_events primero para obtenerlo.',
+      parameters: {
+        type: 'object',
+        properties: {
+          blockId: {
+            type: 'string',
+            description: 'ID del evento a eliminar. Usá el campo "id" que devuelve get_day_events.',
+          },
+        },
+        required: ['blockId'],
+      },
+    },
+  },
 ]
 
 export type AgendaToolName =
@@ -86,3 +103,4 @@ export type AgendaToolName =
   | 'get_free_slots'
   | 'suggest_day_plan'
   | 'propose_block'
+  | 'delete_event'

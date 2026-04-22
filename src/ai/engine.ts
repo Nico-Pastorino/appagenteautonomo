@@ -3,7 +3,7 @@ import { openai } from '@/lib/openai'
 import { prisma } from '@/lib/prisma'
 import { getToolsForModule, getValidToolNames } from './tool-registry'
 import { buildAgendaSystemPrompt } from '@/modules/agenda/prompts/agenda.prompt'
-import { getDayEvents, getDayFreeSlots, getDayEventsAndSlots, confirmAndCreateBlock } from '@/modules/agenda/services/agenda.service'
+import { getDayEvents, getDayFreeSlots, getDayEventsAndSlots, confirmAndCreateBlock, deleteBlockAndEvent } from '@/modules/agenda/services/agenda.service'
 import type { ModuleKey, CalendarEvent, FreeSlot, BlockType } from '@/types'
 import type { Message } from '@prisma/client'
 
@@ -172,6 +172,15 @@ async function executeToolCall(
       }
     }
 
+    case 'delete_event': {
+      const blockId = (args.blockId as string | null | undefined)?.trim()
+      if (!blockId) {
+        return { error: 'Falta blockId. Llamá get_day_events primero para obtener el ID del evento.' }
+      }
+      const result = await deleteBlockAndEvent(userId, blockId)
+      return { deleted: result.deleted, wasInGoogle: result.wasInGoogle, message: 'Evento eliminado del calendario.' }
+    }
+
     default:
       return { error: `Tool "${normalizedName}" no implementada.` }
   }
@@ -180,9 +189,14 @@ async function executeToolCall(
 // ─── Agent loop ───────────────────────────────────────────────────────────────
 
 const SCHEDULING_RE = /\b(agend[aáe]|agendame|agreg[aá]|agregame|program[aá]|programame|bloqu[eé][aá]|bloqueame|reserv[aá]|reservame|anot[aá]|anotame|cre[aá]|ponm?e|pon[eé])\b/i
+const DELETE_RE = /\b(borr[aá]|borrame|elimin[aá]|eliminame|sac[aá]|sacame|cancel[aá]|cancelame)\b/i
 
 function detectSchedulingIntent(message: string): boolean {
   return SCHEDULING_RE.test(message)
+}
+
+function detectDeleteIntent(message: string): boolean {
+  return DELETE_RE.test(message)
 }
 
 export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
@@ -217,7 +231,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   ]
 
   let blockCreated = false
-  const mustUseTool = tools.length > 0 && detectSchedulingIntent(userMessage)
+  const mustUseTool = tools.length > 0 && (detectSchedulingIntent(userMessage) || detectDeleteIntent(userMessage))
 
   for (let i = 0; i < 5; i++) {
     const toolChoice = tools.length > 0
@@ -225,7 +239,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       : undefined
 
     const completion = await openai.chat.completions.create({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.5-pro',
       messages,
       tools: tools.length > 0 ? tools : undefined,
       tool_choice: toolChoice,

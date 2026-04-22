@@ -117,9 +117,19 @@ export async function createCalendarEvent(
   return res.data.id ?? ''
 }
 
-export async function deleteCalendarEvent(userId: string, eventId: string): Promise<void> {
+export async function deleteCalendarEvent(
+  userId: string,
+  eventId: string
+): Promise<{ deleted: boolean; reason?: string }> {
   const calendar = await getCalendarClient(userId)
-  await calendar.events.delete({ calendarId: 'primary', eventId })
+  try {
+    await calendar.events.delete({ calendarId: 'primary', eventId })
+    return { deleted: true }
+  } catch (err: unknown) {
+    const code = (err as { code?: number })?.code
+    if (code === 404 || code === 410) return { deleted: false, reason: 'not_found' }
+    throw err
+  }
 }
 
 export function findFreeSlots(

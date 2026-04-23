@@ -1,52 +1,31 @@
 /**
- * Timezone-aware date helpers using Intl APIs (Node.js built-in, no extra deps).
+ * Timezone-aware date helpers using date-fns-tz.
  *
- * Root problem solved: Date.toISOString().slice(0, 10) returns the UTC date, not
- * the user's local date. At 23:00 Buenos Aires (UTC-3), UTC is already the next
- * day — so the AI prompt said "today = April 23" when it was still April 22.
+ * Root problem solved: Date.toISOString().slice(0,10) returns the UTC date.
+ * At 23:00 Buenos Aires (UTC-3) UTC is already the next day — the AI was
+ * being told "today = April 23" when it was still April 22, so "mañana"
+ * resolved to April 24 (Friday) instead of April 23 (Thursday).
+ *
+ * Rule: NEVER call .toISOString().slice(0,10) for display/AI dates.
+ *       ALWAYS use localDateStr(date, timezone).
  */
 
-/** Returns "YYYY-MM-DD" in the given IANA timezone (never in UTC). */
+import { format, fromZonedTime } from 'date-fns-tz'
+import { addDays } from 'date-fns'
+
+/** Returns "YYYY-MM-DD" in the given IANA timezone — never the UTC date. */
 export function localDateStr(date: Date, timezone: string): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(date)
+  return format(date, 'yyyy-MM-dd', { timeZone: timezone })
 }
 
 /** Returns "HH:mm" in the given IANA timezone. */
 export function localTimeStr(date: Date, timezone: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date)
+  return format(date, 'HH:mm', { timeZone: timezone })
 }
 
-/**
- * Returns the UTC offset for a timezone as "+HH:MM" or "-HH:MM".
- * Used to append to ISO strings so the AI sends fully-qualified datetimes.
- */
+/** Returns the UTC offset as "+HH:MM" or "-HH:MM" (e.g. "-03:00" for Buenos Aires). */
 export function tzOffsetLabel(date: Date, timezone: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    timeZoneName: 'shortOffset',
-  }).formatToParts(date)
-  const tz = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT+0'
-  const m = tz.match(/GMT([+-])(\d+)(?::(\d+))?/)
-  if (!m) return '+00:00'
-  return `${m[1]}${m[2].padStart(2, '0')}:${(m[3] ?? '0').padStart(2, '0')}`
-}
-
-/** Internal: UTC offset in milliseconds for a timezone at a given moment. */
-function getTZOffsetMs(date: Date, timezone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    timeZoneName: 'shortOffset',
-  }).formatToParts(date)
-  const tz = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT+0'
-  const m = tz.match(/GMT([+-])(\d+)(?::(\d+))?/)
-  if (!m) return 0
-  const sign = m[1] === '+' ? 1 : -1
-  return sign * (parseInt(m[2]) * 60 + parseInt(m[3] ?? '0')) * 60000
+  return format(date, 'xxx', { timeZone: timezone })
 }
 
 /**
@@ -54,30 +33,42 @@ function getTZOffsetMs(date: Date, timezone: string): number {
  * e.g. "2026-04-23" + Buenos Aires (UTC-3) → 2026-04-23T03:00:00Z
  */
 export function startOfDayInTZ(dateStr: string, timezone: string): Date {
-  // Use noon to safely determine the timezone offset (avoids DST boundaries at midnight)
-  const ref = new Date(`${dateStr}T12:00:00Z`)
-  const offsetMs = getTZOffsetMs(ref, timezone)
-  return new Date(new Date(`${dateStr}T00:00:00Z`).getTime() - offsetMs)
+  const [year, month, day] = dateStr.split('-').map(Number)
+  // new Date(y, m, d) uses local constructor parts; fromZonedTime treats those
+  // parts as belonging to the target timezone and returns the true UTC Date.
+  return fromZonedTime(new Date(year, month - 1, day, 0, 0, 0, 0), timezone)
 }
 
 /**
  * Returns a Date representing 23:59:59.999 on dateStr in the given timezone.
  */
 export function endOfDayInTZ(dateStr: string, timezone: string): Date {
-  return new Date(startOfDayInTZ(dateStr, timezone).getTime() + 86400000 - 1)
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return fromZonedTime(new Date(year, month - 1, day, 23, 59, 59, 999), timezone)
 }
 
 /**
  * Parses an ISO datetime string in the given timezone.
- * If the string already has a timezone (Z or ±HH:MM) it is used as-is.
- * If not (e.g. "2026-04-23T12:00:00"), the user's timezone offset is appended.
+ * If the string already carries a timezone (Z or ±HH:MM) it is used as-is.
+ * If not (e.g. "2026-04-23T12:00:00"), the user's offset is applied so the
+ * result is always correct regardless of server timezone.
  */
 export function parseDateTimeInTZ(str: string, timezone: string): Date {
   if (str.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(str)) {
     return new Date(str)
   }
-  // Get the offset for the date in the string (handles DST correctly per date)
-  const datePart = str.split('T')[0]
-  const offset = tzOffsetLabel(new Date(`${datePart}T12:00:00Z`), timezone)
-  return new Date(`${str}${offset}`)
+  const [datePart, timePart = '00:00:00'] = str.split('T')
+  const [year, month, day] = datePart.split('-').map(Number)
+  const [hour = 0, minute = 0, second = 0] = timePart.split(':').map(Number)
+  return fromZonedTime(new Date(year, month - 1, day, hour, minute, second), timezone)
+}
+
+/** Returns the current moment (same as new Date() but self-documents intent). */
+export function getNow(): Date {
+  return new Date()
+}
+
+/** Adds n days to a date and returns the YYYY-MM-DD string in the given timezone. */
+export function addDaysStr(date: Date, n: number, timezone: string): string {
+  return localDateStr(addDays(date, n), timezone)
 }

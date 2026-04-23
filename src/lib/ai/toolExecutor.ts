@@ -124,24 +124,40 @@ export async function executeTool(
         return { error: `endTime debe ser posterior a startTime.` }
       }
 
+      const VALID_ITEM_TYPES = new Set(['event', 'task', 'reminder'])
+      const itemType = VALID_ITEM_TYPES.has(args.itemType as string)
+        ? (args.itemType as 'event' | 'task' | 'reminder')
+        : 'event'
+      const syncToGoogle = itemType === 'event'
+
       const block = await confirmAndCreateBlock(userId, {
         title,
         description: args.description as string | undefined,
         startTime,
         endTime,
         type: rawType as BlockType,
-        syncToGoogle: true,
+        itemType,
+        syncToGoogle,
+        reminderAt: itemType === 'reminder' ? startTime : undefined,
       })
 
-      console.log(`[toolExecutor] propose_block → created blockId=${block.id}`)
+      const confirmMsg =
+        itemType === 'task'
+          ? `Creé la tarea: "${block.title}".`
+          : itemType === 'reminder'
+          ? `Te voy a recordar "${block.title}" el ${block.startTime.toLocaleDateString('es', { timeZone: timezone })}.`
+          : `Agendé "${block.title}" en tu calendario.`
+
+      console.log(`[toolExecutor] propose_block → created blockId=${block.id} itemType=${itemType}`)
       return {
         created: true,
         blockId: block.id,
+        itemType,
         title: block.title,
         startTime: block.startTime.toISOString(),
         endTime: block.endTime.toISOString(),
         syncedToGoogle: !!block.externalId,
-        message: `Bloque "${block.title}" creado y sincronizado.`,
+        message: confirmMsg,
       }
     }
 

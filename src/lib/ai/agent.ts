@@ -58,7 +58,12 @@ function buildSystemPrompt(module: ModuleKey, ctx: {
 
 // ── Intent detection ──────────────────────────────────────────────────────────
 
+// event creation
 const SCHEDULING_RE = /\b(agend[aáe]|agendame|agreg[aá]|agregame|program[aá]|programame|bloqu[eé][aá]|bloqueame|reserv[aá]|reservame|anot[aá]|anotame|cre[aá]|ponm?e|pon[eé])\b/i
+// task creation — "tengo que", "debo", "necesito hacer"
+const TASK_RE = /\b(tengo\s+que|debo\s+(hacer|estudiar|entregar|ir)|necesito\s+hacer|anotame\s+(la\s+)?tarea)\b/i
+// reminder creation
+const REMINDER_RE = /\b(record[aá]me|recuerda[mn]?e|no\s+me\s+olvides|avis[aá]me)\b/i
 const DELETE_RE = /\b(borr[aá]|borrame|elimin[aá]|eliminame|sac[aá]|sacame|cancel[aá]|cancelame)\b/i
 const QUERY_RE = /\b(qu[eé]\s+tengo|mi\s+agenda|mis\s+eventos|qu[eé]\s+hay|c[oó]mo\s+est[aá]\s+mi|tengo\s+algo|qu[eé]\s+pasa|organiz[aá]me|organiz[aá]\s+mi|plan(eá|ea|ificá)|libre[s]?\s+(hoy|mañana|el)|huecos?\s+libres?)\b/i
 
@@ -92,7 +97,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     const tools = getToolsForModule(module)
     const validToolNames = getValidToolNames(module)
 
-    const isScheduling = tools.length > 0 && SCHEDULING_RE.test(userMessage)
+    const isScheduling = tools.length > 0 && (SCHEDULING_RE.test(userMessage) || TASK_RE.test(userMessage) || REMINDER_RE.test(userMessage))
     const isDelete = tools.length > 0 && DELETE_RE.test(userMessage)
     const isQuery = tools.length > 0 && QUERY_RE.test(userMessage)
     const mustUseTool = isScheduling || isDelete || isQuery

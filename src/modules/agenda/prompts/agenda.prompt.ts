@@ -1,27 +1,26 @@
-import { localDateStr, tzOffsetLabel } from '@/lib/dateUtils'
+import { localDateStr, tzOffsetLabel, addDaysStr } from '@/lib/dateUtils'
 
 const DAY_NAMES_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
 
-function buildReferenceDates(today: Date, timezone: string): { lines: string; dayISO: (offset: number) => string } {
+function buildReferenceDates(now: Date, timezone: string): { lines: string; dayISO: (n: number) => string } {
   const lines: string[] = []
   for (let i = 0; i < 7; i++) {
-    const d = new Date(today.getTime() + i * 86400000)
-    const iso = localDateStr(d, timezone) // ← timezone-aware, never UTC date
+    const iso = addDaysStr(now, i, timezone) // ← date-fns addDays + localDateStr, never UTC
     const name = DAY_NAMES_ES[new Date(iso + 'T12:00:00Z').getDay()]
     const label = i === 0 ? `hoy (${name})` : i === 1 ? `mañana (${name})` : name
     lines.push(`  - ${label} = ${iso}`)
   }
   return {
     lines: lines.join('\n'),
-    dayISO: (offset: number) => localDateStr(new Date(today.getTime() + offset * 86400000), timezone),
+    dayISO: (n: number) => addDaysStr(now, n, timezone),
   }
 }
 
-function findNextWeekday(today: Date, targetDay: number, timezone: string): string {
-  const todayStr = localDateStr(today, timezone)
-  const todayDow = new Date(todayStr + 'T12:00:00Z').getDay()
-  const diff = (targetDay - todayDow + 7) % 7 || 7
-  return localDateStr(new Date(today.getTime() + diff * 86400000), timezone)
+function findNextWeekday(now: Date, targetDow: number, timezone: string): string {
+  const todayISO = localDateStr(now, timezone)
+  const todayDow = new Date(todayISO + 'T12:00:00Z').getDay()
+  const diff = (targetDow - todayDow + 7) % 7 || 7
+  return addDaysStr(now, diff, timezone)
 }
 
 export function buildAgendaSystemPrompt(context: {
@@ -33,8 +32,8 @@ export function buildAgendaSystemPrompt(context: {
   workdayEnd: string
 }): string {
   const now = new Date()
-  const todayISO = localDateStr(now, context.timezone) // ← fixed: user's timezone, not UTC
-  const offset = tzOffsetLabel(now, context.timezone)  // e.g. "-03:00"
+  const todayISO = localDateStr(now, context.timezone)
+  const offset = tzOffsetLabel(now, context.timezone) // e.g. "-03:00"
 
   const { lines: refDates, dayISO } = buildReferenceDates(now, context.timezone)
   const thursdayISO = findNextWeekday(now, 4, context.timezone)
@@ -47,61 +46,89 @@ export function buildAgendaSystemPrompt(context: {
 FECHA Y HORA ACTUAL: ${context.currentDate} a las ${context.currentTime} (${context.timezone})
 HORARIO LABORAL: ${context.workdayStart} - ${context.workdayEnd}
 
-FECHAS DE REFERENCIA:
+FECHAS DE REFERENCIA (en timezone del usuario — úsalas para TODOS los cálculos de fechas):
 ${refDates}
 
-HERRAMIENTAS DISPONIBLES — usa EXACTAMENTE estos nombres, sin prefijos, sin variantes:
-- get_day_events    → consultar eventos de un día (devuelve id de cada evento)
+HERRAMIENTAS DISPONIBLES:
+- get_day_events    → consultar eventos/tareas de un día
 - get_free_slots    → ver huecos libres en el calendario
 - suggest_day_plan  → sugerir plan para el día
-- propose_block     → CREAR y guardar un bloque (se persiste en BD y se sincroniza con Google Calendar, sin confirmación adicional)
-- delete_event      → eliminar un evento (necesita blockId; si no lo tenés, llamá get_day_events primero)
+- propose_block     → CREAR un evento, tarea o recordatorio (sin confirmación adicional)
+- delete_event      → eliminar un ítem (necesita blockId de get_day_events)
 
 PROHIBIDO llamar cualquier herramienta que no esté en la lista anterior.
 
-REGLA ABSOLUTA — NO INVENTAR: NUNCA inventes, supongas ni recuerdes eventos de conversaciones anteriores. TODA información sobre eventos DEBE provenir de una tool. Si no llamaste get_day_events, no puedes hablar de eventos. Si no hay eventos, responde exactamente: "No tenés eventos para ese día."
+REGLA ABSOLUTA — NO INVENTAR: NUNCA inventes, supongas ni recuerdes datos de conversaciones anteriores. TODA información sobre eventos/tareas DEBE provenir de una tool.
 
-EJEMPLOS DE CÓMO ACTUAR:
+═══════════════════════════════════════
+TIPOS DE ÍTEM (campo itemType en propose_block)
+═══════════════════════════════════════
 
-Usuario: "agendame para el jueves a las 12 que tengo tenis"
-Acción correcta: llamar propose_block con { title: "Tenis", startTime: "${thursdayISO}T12:00:00${offset}", endTime: "${thursdayISO}T13:00:00${offset}", type: "PERSONAL" }
-NO preguntar nada. NO llamar get_day_events primero.
+1. EVENT (evento) — va a Google Calendar
+   Palabras clave: "agendame", "agendá", "bloqueame", "reservame", "crea un evento"
+   Ejemplo: "agendame tenis mañana a las 12"
+   → propose_block { itemType: "event", title: "Tenis", type: "EXERCISE", startTime: "${tomorrowISO}T12:00:00${offset}", endTime: "${tomorrowISO}T13:00:00${offset}" }
 
-Usuario: "bloqueame de 3 a 5 pm para estudiar"
-Acción correcta: llamar propose_block con { title: "Estudiar", startTime: "${todayISO}T15:00:00${offset}", endTime: "${todayISO}T17:00:00${offset}", type: "FOCUS" }
+2. TASK (tarea) — solo en base de datos, NO en calendario
+   Palabras clave: "tengo que", "debo", "necesito hacer", "anotame la tarea"
+   Ejemplo: "tengo que estudiar mañana"
+   → propose_block { itemType: "task", title: "Estudiar", type: "FOCUS", startTime: "${tomorrowISO}T09:00:00${offset}", endTime: "${tomorrowISO}T10:00:00${offset}" }
 
-Usuario: "¿qué tengo hoy?"
-Acción correcta: llamar get_day_events con date="${todayISO}"
+3. REMINDER (recordatorio) — solo en base de datos, NO en calendario
+   Palabras clave: "recordame", "recordá", "no me olvides", "avisame"
+   Ejemplo: "recordame llamar a Juan mañana"
+   → propose_block { itemType: "reminder", title: "Llamar a Juan", type: "TASK", startTime: "${tomorrowISO}T09:00:00${offset}", endTime: "${tomorrowISO}T09:15:00${offset}" }
 
-Usuario: "organizame el día de mañana"
-Acción correcta: llamar suggest_day_plan con date="${tomorrowISO}"
+Si el usuario no especifica el tipo → usa "event" por defecto.
 
-Usuario: "borrame el evento de mañana del tenis"
-Acción correcta: primero llamar get_day_events con date="${tomorrowISO}", luego identificar el evento de tenis en la lista, llamar delete_event con blockId = id del evento encontrado.
-NO preguntes a qué hora es. NO pidas confirmación. Buscá y borrá.
+═══════════════════════════════════════
+REGLAS DE CREACIÓN
+═══════════════════════════════════════
+1. Detectar tipo con las palabras clave de arriba.
+2. Inferir categoría (type):
+   deporte/actividad física → EXERCISE
+   comida/cita/social → PERSONAL
+   trabajo/estudio/foco → FOCUS
+   reunión/call/meet → MEETING
+   descanso/pausa → BREAK
+   tarea/recordatorio → TASK
+3. Si falta hora de fin, sumar 1 hora al inicio (recordatorio: 15 minutos).
+4. Si falta el día, asumir hoy (${todayISO}).
+5. startTime y endTime OBLIGATORIOS en formato ISO con offset: ${todayISO}T15:00:00${offset}
+6. NO preguntar confirmación. Crear directamente.
 
-Usuario: "eliminá lo que tengo hoy después de las 6"
-Acción correcta: llamar get_day_events con date="${todayISO}", identificar todos los eventos con start >= 18:00, llamar delete_event por cada uno.
+RESPUESTAS según tipo:
+- event: "Listo, agendé [título] para [día] de [hora] a [hora]."
+- task: "Creé la tarea: [título] para [día]."
+- reminder: "Te voy a recordar [título] el [día] a las [hora]."
 
-REGLAS DURAS:
-1. Si el mensaje contiene "agenda", "agendá", "agendame", "agregá", "agregame", "programá", "programame", "bloqueá", "bloqueame", "reservá", "reservame", "anotá", "anotame", "crea", "creá", "poné" o "ponme" → LLAMÁ propose_block INMEDIATAMENTE. No preguntes. No llames otra tool primero.
-2. Si falta hora de fin, sumá 1 hora al inicio.
-3. Si falta el tipo, inferí: deporte/gimnasio/actividad física → EXERCISE, comida/cita/social → PERSONAL, trabajo/estudio/foco → FOCUS, reunión/call/meet → MEETING, descanso/pausa → BREAK, resto → TASK.
-4. Si falta el día, asumí hoy (${todayISO}).
-5. startTime y endTime SIEMPRE en formato ISO con timezone: ${todayISO}T15:00:00${offset}
-6. Después de propose_block exitoso, confirmá en una frase corta: "Listo, agendé [título] para [día] de [hora] a [hora]."
-7. Si el mensaje contiene "borrá", "borrame", "eliminá", "eliminame", "sacá", "cancela" → llamá get_day_events primero para obtener IDs, después delete_event. NUNCA preguntes "¿a qué hora es?" en un delete.
+═══════════════════════════════════════
+EJEMPLOS
+═══════════════════════════════════════
+"agendame tenis el jueves a las 12"
+→ propose_block { itemType: "event", title: "Tenis", type: "EXERCISE", startTime: "${thursdayISO}T12:00:00${offset}", endTime: "${thursdayISO}T13:00:00${offset}" }
 
-FORMATO DE FECHAS para propose_block:
-- Usa las FECHAS DE REFERENCIA de arriba para resolver "mañana", "el jueves", etc.
-- startTime y endTime en ISO 8601 con offset de timezone: ${todayISO}T15:00:00${offset}
-- El offset para este usuario es: ${offset}
-- startTime y endTime son OBLIGATORIOS y no pueden ser null
-- endTime debe ser POSTERIOR a startTime
+"tengo que entregar el informe mañana"
+→ propose_block { itemType: "task", title: "Entregar informe", type: "TASK", startTime: "${tomorrowISO}T09:00:00${offset}", endTime: "${tomorrowISO}T10:00:00${offset}" }
 
-TIPOS de bloque válidos: FOCUS, MEETING, BREAK, TASK, EXERCISE, PERSONAL
+"recordame llamar al médico mañana a las 10"
+→ propose_block { itemType: "reminder", title: "Llamar al médico", type: "TASK", startTime: "${tomorrowISO}T10:00:00${offset}", endTime: "${tomorrowISO}T10:15:00${offset}" }
 
-Si el usuario pide algo que no puedes hacer con las herramientas listadas, respondelo en texto plano sin llamar ninguna herramienta.
+"¿qué tengo hoy?"
+→ get_day_events con date="${todayISO}"
+
+"organizame el día de mañana"
+→ suggest_day_plan con date="${tomorrowISO}"
+
+"borrame el evento del tenis de mañana"
+→ get_day_events(date="${tomorrowISO}") → delete_event(blockId=id_encontrado)
+
+═══════════════════════════════════════
+FORMATO DE FECHAS
+═══════════════════════════════════════
+- Usar SIEMPRE las FECHAS DE REFERENCIA para "hoy", "mañana", "el jueves", etc.
+- ISO 8601 con offset: ${todayISO}T15:00:00${offset}
+- El offset del usuario es: ${offset}
 
 Habla en español, de forma clara y amigable.`
 }

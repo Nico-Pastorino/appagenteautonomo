@@ -45,7 +45,9 @@ export async function confirmAndCreateBlock(
     startTime: Date
     endTime: Date
     type: 'FOCUS' | 'MEETING' | 'BREAK' | 'TASK' | 'EXERCISE' | 'PERSONAL'
+    itemType?: 'event' | 'task' | 'reminder'
     syncToGoogle?: boolean
+    reminderAt?: Date
   }
 ) {
   let externalId: string | undefined
@@ -63,6 +65,9 @@ export async function confirmAndCreateBlock(
     }
   }
 
+  const itemTypeMap = { event: 'EVENT', task: 'TASK', reminder: 'REMINDER' } as const
+  const prismaItemType = itemTypeMap[block.itemType ?? 'event']
+
   return prisma.agendaBlock.create({
     data: {
       userId,
@@ -71,8 +76,10 @@ export async function confirmAndCreateBlock(
       startTime: block.startTime,
       endTime: block.endTime,
       type: block.type,
+      itemType: prismaItemType,
       source: 'AI_SUGGESTED',
       confirmed: true,
+      reminderAt: block.reminderAt,
       externalId,
     },
   })

@@ -67,12 +67,17 @@ export const agendaTools: OpenAI.Chat.ChatCompletionTool[] = [
         properties: {
           title: { type: 'string', description: 'Título del bloque.' },
           description: { type: 'string', description: 'Descripción opcional.' },
-          startTime: { type: 'string', description: 'Inicio en ISO 8601.' },
-          endTime: { type: 'string', description: 'Fin en ISO 8601.' },
+          startTime: { type: 'string', description: 'Inicio en ISO 8601 con offset de timezone (ej: 2026-04-23T12:00:00-03:00).' },
+          endTime: { type: 'string', description: 'Fin en ISO 8601 con offset de timezone (ej: 2026-04-23T13:00:00-03:00).' },
           type: {
             type: 'string',
             enum: ['FOCUS', 'MEETING', 'BREAK', 'TASK', 'EXERCISE', 'PERSONAL'],
-            description: 'Tipo de bloque.',
+            description: 'Categoría del bloque.',
+          },
+          itemType: {
+            type: 'string',
+            enum: ['event', 'task', 'reminder'],
+            description: 'event: evento en Google Calendar. task: tarea solo en DB. reminder: recordatorio solo en DB.',
           },
         },
         required: ['title', 'startTime', 'endTime', 'type'],

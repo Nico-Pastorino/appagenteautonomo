@@ -38,8 +38,9 @@ function buildSystemPrompt(module: ModuleKey, ctx: {
   const now = new Date()
   const currentDate = now.toLocaleDateString('es', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    timeZone: ctx.timezone,
   })
-  const currentTime = now.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false })
+  const currentTime = now.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: ctx.timezone })
 
   if (module === 'AGENDA') {
     return buildAgendaSystemPrompt({
@@ -186,7 +187,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
 
         let result: unknown
         try {
-          result = await executeTool(fn.name, args, userId, validToolNames)
+          result = await executeTool(fn.name, args, userId, validToolNames, timezone)
         } catch (err) {
           console.error(`[agent] tool execution error for "${fn.name}":`, err)
           result = { error: err instanceof Error ? err.message : 'Error al ejecutar herramienta' }

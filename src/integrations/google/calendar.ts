@@ -1,5 +1,6 @@
 import { google, calendar_v3 } from 'googleapis'
 import { prisma } from '@/lib/prisma'
+import { localDateStr, startOfDayInTZ, endOfDayInTZ, parseDateTimeInTZ } from '@/lib/dateUtils'
 import { CalendarEvent, FreeSlot } from '@/types'
 
 function mapGoogleEvent(item: calendar_v3.Schema$Event): CalendarEvent {
@@ -54,13 +55,16 @@ async function getCalendarClient(userId: string) {
   return google.calendar({ version: 'v3', auth: oauth2 })
 }
 
-export async function getEventsForDay(userId: string, date: Date): Promise<CalendarEvent[]> {
+export async function getEventsForDay(
+  userId: string,
+  date: Date,
+  timezone = 'America/Argentina/Buenos_Aires'
+): Promise<CalendarEvent[]> {
   const calendar = await getCalendarClient(userId)
 
-  const start = new Date(date)
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(date)
-  end.setHours(23, 59, 59, 999)
+  const dateStr = localDateStr(date, timezone)
+  const start = startOfDayInTZ(dateStr, timezone)
+  const end = endOfDayInTZ(dateStr, timezone)
 
   const res = await calendar.events.list({
     calendarId: 'primary',
@@ -139,15 +143,12 @@ export function findFreeSlots(
   date: Date,
   workdayStart = '09:00',
   workdayEnd = '18:00',
-  minSlotMinutes = 30
+  minSlotMinutes = 30,
+  timezone = 'America/Argentina/Buenos_Aires'
 ): FreeSlot[] {
-  const [startH, startM] = workdayStart.split(':').map(Number)
-  const [endH, endM] = workdayEnd.split(':').map(Number)
-
-  const dayStart = new Date(date)
-  dayStart.setHours(startH, startM, 0, 0)
-  const dayEnd = new Date(date)
-  dayEnd.setHours(endH, endM, 0, 0)
+  const dateStr = localDateStr(date, timezone)
+  const dayStart = parseDateTimeInTZ(`${dateStr}T${workdayStart}:00`, timezone)
+  const dayEnd = parseDateTimeInTZ(`${dateStr}T${workdayEnd}:00`, timezone)
 
   const timedEvents = events
     .filter((e) => !e.isAllDay)

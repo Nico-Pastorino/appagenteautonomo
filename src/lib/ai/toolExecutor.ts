@@ -5,6 +5,7 @@ import {
   confirmAndCreateBlock,
   deleteBlockAndEvent,
 } from '@/modules/agenda/services/agenda.service'
+import { localDateStr, startOfDayInTZ, parseDateTimeInTZ } from '@/lib/dateUtils'
 import type { CalendarEvent, FreeSlot, BlockType } from '@/types'
 
 const PLACEHOLDER_TOOLS = new Set([
@@ -14,16 +15,12 @@ const PLACEHOLDER_TOOLS = new Set([
   'get_tasks', 'prioritize_tasks',
 ])
 
-function parseLocalDate(dateStr: string): Date {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  return new Date(y, m - 1, d)
-}
-
 export async function executeTool(
   rawName: string,
   args: Record<string, unknown>,
   userId: string,
-  validToolNames: Set<string>
+  validToolNames: Set<string>,
+  timezone = 'America/Argentina/Buenos_Aires'
 ): Promise<unknown> {
   const name = rawName.replace(/^_+/, '')
   console.log(`[toolExecutor] ${name}`, JSON.stringify(args))
@@ -38,21 +35,23 @@ export async function executeTool(
     return { error: `La herramienta "${name}" está en desarrollo. Próximamente disponible.` }
   }
 
-  const today = new Date()
+  const todayStr = localDateStr(new Date(), timezone)
 
   // ── Agenda ─────────────────────────────────────────────────────────────────
 
   switch (name) {
     case 'get_day_events': {
-      const date = args.date ? parseLocalDate(args.date as string) : today
-      const events = await getDayEvents(userId, date)
+      const dateStr = (args.date as string | undefined) ?? todayStr
+      const date = startOfDayInTZ(dateStr, timezone)
+      console.log(`[toolExecutor] INPUT date="${args.date}" timezone="${timezone}" → PARSED=${date.toISOString()} (${localDateStr(date, timezone)})`)
+      const events = await getDayEvents(userId, date, timezone)
       const result = {
-        date: date.toLocaleDateString('es'),
+        date: date.toLocaleDateString('es', { timeZone: timezone }),
         events: events.map((e: CalendarEvent) => ({
           id: e.id,
           title: e.title,
-          start: e.start.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
-          end: e.end.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
+          start: e.start.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone }),
+          end: e.end.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone }),
           isAllDay: e.isAllDay,
           description: e.description,
         })),
@@ -63,13 +62,13 @@ export async function executeTool(
     }
 
     case 'get_free_slots': {
-      const date = args.date ? parseLocalDate(args.date as string) : today
-      const slots = await getDayFreeSlots(userId, date)
+      const date = startOfDayInTZ((args.date as string | undefined) ?? todayStr, timezone)
+      const slots = await getDayFreeSlots(userId, date, timezone)
       return {
-        date: date.toLocaleDateString('es'),
+        date: date.toLocaleDateString('es', { timeZone: timezone }),
         freeSlots: slots.map((s: FreeSlot) => ({
-          start: s.start.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
-          end: s.end.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
+          start: s.start.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone }),
+          end: s.end.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone }),
           durationMinutes: s.durationMinutes,
         })),
         total: slots.length,
@@ -77,15 +76,15 @@ export async function executeTool(
     }
 
     case 'suggest_day_plan': {
-      const date = args.date ? parseLocalDate(args.date as string) : today
-      const { events, slots } = await getDayEventsAndSlots(userId, date)
+      const date = startOfDayInTZ((args.date as string | undefined) ?? todayStr, timezone)
+      const { events, slots } = await getDayEventsAndSlots(userId, date, timezone)
       return {
-        date: date.toLocaleDateString('es'),
+        date: date.toLocaleDateString('es', { timeZone: timezone }),
         existingEvents: events.map((e: CalendarEvent) => ({
           id: e.id,
           title: e.title,
-          start: e.start.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
-          end: e.end.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
+          start: e.start.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone }),
+          end: e.end.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: timezone }),
         })),
         freeSlots: slots.map((s: FreeSlot) => ({
           start: s.start.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false }),
@@ -112,11 +111,14 @@ export async function executeTool(
         return { error: 'Faltan startTime o endTime en formato ISO 8601.' }
       }
 
-      const startTime = new Date(rawStart)
-      const endTime = new Date(rawEnd)
+      const startTime = parseDateTimeInTZ(rawStart, timezone)
+      const endTime = parseDateTimeInTZ(rawEnd, timezone)
+
+      console.log(`[toolExecutor] INPUT startTime="${rawStart}" endTime="${rawEnd}"`)
+      console.log(`[toolExecutor] FINAL DATES: start=${startTime.toISOString()} end=${endTime.toISOString()}`)
 
       if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
-        return { error: `Fecha inválida (recibido: "${rawStart}", "${rawEnd}"). Usa ISO 8601: ${today.toISOString().slice(0, 10)}T15:00:00.` }
+        return { error: `Fecha inválida (recibido: "${rawStart}", "${rawEnd}"). Usa ISO 8601 con offset: ${todayStr}T15:00:00-03:00.` }
       }
       if (endTime <= startTime) {
         return { error: `endTime debe ser posterior a startTime.` }

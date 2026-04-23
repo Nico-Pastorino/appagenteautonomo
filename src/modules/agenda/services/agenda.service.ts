@@ -8,8 +8,8 @@ import {
 } from '@/integrations/google/calendar'
 import { CalendarEvent, FreeSlot } from '@/types'
 
-export async function getDayEvents(userId: string, date: Date): Promise<CalendarEvent[]> {
-  return getEventsForDay(userId, date)
+export async function getDayEvents(userId: string, date: Date, timezone?: string): Promise<CalendarEvent[]> {
+  return getEventsForDay(userId, date, timezone)
 }
 
 export async function getWeekEvents(userId: string, startDate: Date): Promise<CalendarEvent[]> {
@@ -18,20 +18,22 @@ export async function getWeekEvents(userId: string, startDate: Date): Promise<Ca
   return getEventsForRange(userId, startDate, end)
 }
 
-export async function getDayFreeSlots(userId: string, date: Date): Promise<FreeSlot[]> {
+export async function getDayFreeSlots(userId: string, date: Date, timezone?: string): Promise<FreeSlot[]> {
   const [prefs, events] = await Promise.all([
     prisma.userPreference.findUnique({ where: { userId } }),
-    getEventsForDay(userId, date),
+    getEventsForDay(userId, date, timezone),
   ])
-  return findFreeSlots(events, date, prefs?.workdayStart ?? '09:00', prefs?.workdayEnd ?? '18:00')
+  const tz = timezone ?? prefs?.timezone ?? 'America/Argentina/Buenos_Aires'
+  return findFreeSlots(events, date, prefs?.workdayStart ?? '09:00', prefs?.workdayEnd ?? '18:00', 30, tz)
 }
 
-export async function getDayEventsAndSlots(userId: string, date: Date) {
+export async function getDayEventsAndSlots(userId: string, date: Date, timezone?: string) {
   const [prefs, events] = await Promise.all([
     prisma.userPreference.findUnique({ where: { userId } }),
-    getEventsForDay(userId, date),
+    getEventsForDay(userId, date, timezone),
   ])
-  const slots = findFreeSlots(events, date, prefs?.workdayStart ?? '09:00', prefs?.workdayEnd ?? '18:00')
+  const tz = timezone ?? prefs?.timezone ?? 'America/Argentina/Buenos_Aires'
+  const slots = findFreeSlots(events, date, prefs?.workdayStart ?? '09:00', prefs?.workdayEnd ?? '18:00', 30, tz)
   return { events, slots }
 }
 

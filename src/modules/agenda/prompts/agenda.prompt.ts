@@ -1,30 +1,27 @@
+import { localDateStr, tzOffsetLabel } from '@/lib/dateUtils'
+
 const DAY_NAMES_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
 
-function buildReferenceDates(today: Date): { lines: string; dayISO: (offset: number) => string } {
+function buildReferenceDates(today: Date, timezone: string): { lines: string; dayISO: (offset: number) => string } {
   const lines: string[] = []
   for (let i = 0; i < 7; i++) {
-    const d = new Date(today)
-    d.setDate(d.getDate() + i)
-    const iso = d.toISOString().slice(0, 10)
-    const name = DAY_NAMES_ES[d.getDay()]
+    const d = new Date(today.getTime() + i * 86400000)
+    const iso = localDateStr(d, timezone) // ← timezone-aware, never UTC date
+    const name = DAY_NAMES_ES[new Date(iso + 'T12:00:00Z').getDay()]
     const label = i === 0 ? `hoy (${name})` : i === 1 ? `mañana (${name})` : name
     lines.push(`  - ${label} = ${iso}`)
   }
   return {
     lines: lines.join('\n'),
-    dayISO: (offset: number) => {
-      const d = new Date(today)
-      d.setDate(d.getDate() + offset)
-      return d.toISOString().slice(0, 10)
-    },
+    dayISO: (offset: number) => localDateStr(new Date(today.getTime() + offset * 86400000), timezone),
   }
 }
 
-function findNextWeekday(today: Date, targetDay: number): string {
-  const d = new Date(today)
-  const diff = (targetDay - d.getDay() + 7) % 7 || 7
-  d.setDate(d.getDate() + diff)
-  return d.toISOString().slice(0, 10)
+function findNextWeekday(today: Date, targetDay: number, timezone: string): string {
+  const todayStr = localDateStr(today, timezone)
+  const todayDow = new Date(todayStr + 'T12:00:00Z').getDay()
+  const diff = (targetDay - todayDow + 7) % 7 || 7
+  return localDateStr(new Date(today.getTime() + diff * 86400000), timezone)
 }
 
 export function buildAgendaSystemPrompt(context: {
@@ -35,11 +32,15 @@ export function buildAgendaSystemPrompt(context: {
   workdayStart: string
   workdayEnd: string
 }): string {
-  const today = new Date()
-  const todayISO = today.toISOString().slice(0, 10)
-  const { lines: refDates, dayISO } = buildReferenceDates(today)
-  const thursdayISO = findNextWeekday(today, 4)
+  const now = new Date()
+  const todayISO = localDateStr(now, context.timezone) // ← fixed: user's timezone, not UTC
+  const offset = tzOffsetLabel(now, context.timezone)  // e.g. "-03:00"
+
+  const { lines: refDates, dayISO } = buildReferenceDates(now, context.timezone)
+  const thursdayISO = findNextWeekday(now, 4, context.timezone)
   const tomorrowISO = dayISO(1)
+
+  console.log(`[prompt] todayISO=${todayISO} offset=${offset} timezone=${context.timezone}`)
 
   return `Eres el asistente de agenda personal de ${context.userName}.
 
@@ -63,11 +64,11 @@ REGLA ABSOLUTA — NO INVENTAR: NUNCA inventes, supongas ni recuerdes eventos de
 EJEMPLOS DE CÓMO ACTUAR:
 
 Usuario: "agendame para el jueves a las 12 que tengo tenis"
-Acción correcta: llamar propose_block con { title: "Tenis", startTime: "${thursdayISO}T12:00:00", endTime: "${thursdayISO}T13:00:00", type: "PERSONAL" }
+Acción correcta: llamar propose_block con { title: "Tenis", startTime: "${thursdayISO}T12:00:00${offset}", endTime: "${thursdayISO}T13:00:00${offset}", type: "PERSONAL" }
 NO preguntar nada. NO llamar get_day_events primero.
 
 Usuario: "bloqueame de 3 a 5 pm para estudiar"
-Acción correcta: llamar propose_block con { title: "Estudiar", startTime: "${todayISO}T15:00:00", endTime: "${todayISO}T17:00:00", type: "FOCUS" }
+Acción correcta: llamar propose_block con { title: "Estudiar", startTime: "${todayISO}T15:00:00${offset}", endTime: "${todayISO}T17:00:00${offset}", type: "FOCUS" }
 
 Usuario: "¿qué tengo hoy?"
 Acción correcta: llamar get_day_events con date="${todayISO}"
@@ -87,13 +88,14 @@ REGLAS DURAS:
 2. Si falta hora de fin, sumá 1 hora al inicio.
 3. Si falta el tipo, inferí: deporte/gimnasio/actividad física → EXERCISE, comida/cita/social → PERSONAL, trabajo/estudio/foco → FOCUS, reunión/call/meet → MEETING, descanso/pausa → BREAK, resto → TASK.
 4. Si falta el día, asumí hoy (${todayISO}).
-5. startTime y endTime SIEMPRE en formato ISO completo (YYYY-MM-DDTHH:mm:ss), nunca null.
+5. startTime y endTime SIEMPRE en formato ISO con timezone: ${todayISO}T15:00:00${offset}
 6. Después de propose_block exitoso, confirmá en una frase corta: "Listo, agendé [título] para [día] de [hora] a [hora]."
 7. Si el mensaje contiene "borrá", "borrame", "eliminá", "eliminame", "sacá", "cancela" → llamá get_day_events primero para obtener IDs, después delete_event. NUNCA preguntes "¿a qué hora es?" en un delete.
 
 FORMATO DE FECHAS para propose_block:
 - Usa las FECHAS DE REFERENCIA de arriba para resolver "mañana", "el jueves", etc.
-- startTime y endTime en ISO 8601: ${todayISO}T15:00:00
+- startTime y endTime en ISO 8601 con offset de timezone: ${todayISO}T15:00:00${offset}
+- El offset para este usuario es: ${offset}
 - startTime y endTime son OBLIGATORIOS y no pueden ser null
 - endTime debe ser POSTERIOR a startTime
 

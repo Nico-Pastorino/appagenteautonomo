@@ -62,7 +62,7 @@ export async function DELETE(req: NextRequest) {
   })
 
   if (conversation) {
-    await prisma.message.deleteMany({ where: { conversationId: conversation.id } })
+    await prisma.conversation.delete({ where: { id: conversation.id } })
   }
 
   return NextResponse.json({ reset: true })

@@ -23,7 +23,9 @@ interface AgentResult {
   blockCreated?: boolean
 }
 
+const MODEL = 'gpt-4o-mini' as const
 const FALLBACK_MESSAGE = 'Estoy teniendo un problema técnico, intenta nuevamente'
+const SUMMARY_PROMPT = 'En base al resultado anterior, respondé al usuario en 1-2 oraciones qué encontraste o hiciste.'
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
@@ -78,11 +80,12 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       data: { conversationId, role: 'USER', content: userMessage },
     })
 
-    const history = await prisma.message.findMany({
+    const historyRaw = await prisma.message.findMany({
       where: { conversationId, role: { in: ['USER', 'ASSISTANT'] } },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
       take: 10,
     })
+    const history = historyRaw.reverse()
 
     const systemPrompt = buildSystemPrompt(module, { userName, timezone, workdayStart, workdayEnd })
     const tools = getToolsForModule(module)
@@ -121,7 +124,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       console.log('SENDING TO OPENAI:', messages)
 
       const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: MODEL,
         messages,
         tools: tools.length > 0 ? tools : undefined,
         tool_choice: toolChoice,
@@ -141,7 +144,20 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       console.log(`[agent] finish_reason=${response.choices[0]?.finish_reason} tool_calls=${toolCalls.length}`)
 
       if (toolCalls.length === 0) {
-        const finalContent = normalizeFinalText(message.content, blockCreated)
+        let rawContent = message.content
+
+        if (!rawContent?.trim() && i > 0) {
+          // gpt-4o-mini returns content: null after tool calls — force a summary
+          console.log('[agent] null content after tool — forcing summary call')
+          const summaryRes = await openai.chat.completions.create({
+            model: MODEL,
+            messages: [...messages, { role: 'user', content: SUMMARY_PROMPT }],
+            max_tokens: 150,
+          })
+          rawContent = summaryRes.choices[0]?.message.content ?? null
+        }
+
+        const finalContent = normalizeFinalText(rawContent, blockCreated)
 
         await prisma.message.create({
           data: { conversationId, role: 'ASSISTANT', content: finalContent },

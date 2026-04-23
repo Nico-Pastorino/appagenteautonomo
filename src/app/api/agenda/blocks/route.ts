@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { confirmAndCreateBlock } from '@/modules/agenda/services/agenda.service'
 import { prisma } from '@/lib/prisma'
+import { parseDateTimeInTZ } from '@/lib/dateUtils'
+import { USER_TIMEZONE } from '@/lib/timezone'
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -18,8 +20,8 @@ export async function POST(req: NextRequest) {
     const block = await confirmAndCreateBlock(session.user.id, {
       title,
       description,
-      startTime: new Date(startTime),
-      endTime: new Date(endTime),
+      startTime: parseDateTimeInTZ(startTime, USER_TIMEZONE),
+      endTime: parseDateTimeInTZ(endTime, USER_TIMEZONE),
       type,
       syncToGoogle: syncToGoogle ?? true,
     })

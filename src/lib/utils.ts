@@ -5,11 +5,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatTime(date: Date): string {
+export function formatTime(date: Date, timeZone?: string): string {
   return new Intl.DateTimeFormat('es', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
+    timeZone,
   }).format(date)
 }
 

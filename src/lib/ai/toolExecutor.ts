@@ -6,6 +6,7 @@ import {
   deleteBlockAndEvent,
 } from '@/modules/agenda/services/agenda.service'
 import { localDateStr, startOfDayInTZ, parseDateTimeInTZ } from '@/lib/dateUtils'
+import { USER_TIMEZONE } from '@/lib/timezone'
 import type { CalendarEvent, FreeSlot, BlockType } from '@/types'
 
 const PLACEHOLDER_TOOLS = new Set([
@@ -20,7 +21,7 @@ export async function executeTool(
   args: Record<string, unknown>,
   userId: string,
   validToolNames: Set<string>,
-  timezone = 'America/Argentina/Buenos_Aires'
+  timezone = USER_TIMEZONE
 ): Promise<unknown> {
   const name = rawName.replace(/^_+/, '')
   console.log(`[toolExecutor] ${name}`, JSON.stringify(args))

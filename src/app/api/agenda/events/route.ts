@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { getDayEvents, getBlocksForDay } from '@/modules/agenda/services/agenda.service'
+import { localDateStr, startOfDayInTZ } from '@/lib/dateUtils'
+import { USER_TIMEZONE } from '@/lib/timezone'
 
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -8,14 +10,13 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const dateParam = searchParams.get('date')
-  const date = dateParam
-    ? (() => { const [y, m, d] = dateParam.split('-').map(Number); return new Date(y, m - 1, d) })()
-    : new Date()
+  const dateStr = dateParam ?? localDateStr(new Date(), USER_TIMEZONE)
+  const date = startOfDayInTZ(dateStr, USER_TIMEZONE)
 
   try {
     const [calendarEvents, localBlocks] = await Promise.all([
-      getDayEvents(session.user.id, date),
-      getBlocksForDay(session.user.id, date),
+      getDayEvents(session.user.id, date, USER_TIMEZONE),
+      getBlocksForDay(session.user.id, date, USER_TIMEZONE),
     ])
 
     return NextResponse.json({ calendarEvents, localBlocks })

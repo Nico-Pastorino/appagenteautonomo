@@ -12,19 +12,20 @@
 
 import { format, fromZonedTime } from 'date-fns-tz'
 import { addDays } from 'date-fns'
+import { USER_TIMEZONE } from '@/lib/timezone'
 
 /** Returns "YYYY-MM-DD" in the given IANA timezone — never the UTC date. */
-export function localDateStr(date: Date, timezone: string): string {
+export function localDateStr(date: Date, timezone = USER_TIMEZONE): string {
   return format(date, 'yyyy-MM-dd', { timeZone: timezone })
 }
 
 /** Returns "HH:mm" in the given IANA timezone. */
-export function localTimeStr(date: Date, timezone: string): string {
+export function localTimeStr(date: Date, timezone = USER_TIMEZONE): string {
   return format(date, 'HH:mm', { timeZone: timezone })
 }
 
 /** Returns the UTC offset as "+HH:MM" or "-HH:MM" (e.g. "-03:00" for Buenos Aires). */
-export function tzOffsetLabel(date: Date, timezone: string): string {
+export function tzOffsetLabel(date: Date, timezone = USER_TIMEZONE): string {
   return format(date, 'xxx', { timeZone: timezone })
 }
 
@@ -32,19 +33,28 @@ export function tzOffsetLabel(date: Date, timezone: string): string {
  * Returns a Date representing 00:00:00 on dateStr in the given timezone.
  * e.g. "2026-04-23" + Buenos Aires (UTC-3) → 2026-04-23T03:00:00Z
  */
-export function startOfDayInTZ(dateStr: string, timezone: string): Date {
-  const [year, month, day] = dateStr.split('-').map(Number)
-  // new Date(y, m, d) uses local constructor parts; fromZonedTime treats those
-  // parts as belonging to the target timezone and returns the true UTC Date.
-  return fromZonedTime(new Date(year, month - 1, day, 0, 0, 0, 0), timezone)
+export function startOfDayInTZ(dateStr: string, timezone = USER_TIMEZONE): Date {
+  return fromZonedTime(`${dateStr}T00:00:00.000`, timezone)
 }
 
 /**
  * Returns a Date representing 23:59:59.999 on dateStr in the given timezone.
  */
-export function endOfDayInTZ(dateStr: string, timezone: string): Date {
-  const [year, month, day] = dateStr.split('-').map(Number)
-  return fromZonedTime(new Date(year, month - 1, day, 23, 59, 59, 999), timezone)
+export function endOfDayInTZ(dateStr: string, timezone = USER_TIMEZONE): Date {
+  return fromZonedTime(`${dateStr}T23:59:59.999`, timezone)
+}
+
+export function dayRangeInTZ(dateStr: string, timezone = USER_TIMEZONE) {
+  const startOfDay = startOfDayInTZ(dateStr, timezone)
+  const endOfDay = endOfDayInTZ(dateStr, timezone)
+  return {
+    dateStr,
+    timezone,
+    startOfDay,
+    endOfDay,
+    startUTC: startOfDay.toISOString(),
+    endUTC: endOfDay.toISOString(),
+  }
 }
 
 /**
@@ -53,14 +63,15 @@ export function endOfDayInTZ(dateStr: string, timezone: string): Date {
  * If not (e.g. "2026-04-23T12:00:00"), the user's offset is applied so the
  * result is always correct regardless of server timezone.
  */
-export function parseDateTimeInTZ(str: string, timezone: string): Date {
+export function parseDateTimeInTZ(str: string, timezone = USER_TIMEZONE): Date {
   if (str.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(str)) {
     return new Date(str)
   }
   const [datePart, timePart = '00:00:00'] = str.split('T')
   const [year, month, day] = datePart.split('-').map(Number)
   const [hour = 0, minute = 0, second = 0] = timePart.split(':').map(Number)
-  return fromZonedTime(new Date(year, month - 1, day, hour, minute, second), timezone)
+  const normalized = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`
+  return fromZonedTime(normalized, timezone)
 }
 
 /** Returns the current moment (same as new Date() but self-documents intent). */

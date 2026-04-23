@@ -1,4 +1,6 @@
 import { prisma } from '@/lib/prisma'
+import { dayRangeInTZ } from '@/lib/dateUtils'
+import { USER_TIMEZONE } from '@/lib/timezone'
 import {
   getEventsForDay,
   getEventsForRange,
@@ -23,7 +25,7 @@ export async function getDayFreeSlots(userId: string, date: Date, timezone?: str
     prisma.userPreference.findUnique({ where: { userId } }),
     getEventsForDay(userId, date, timezone),
   ])
-  const tz = timezone ?? prefs?.timezone ?? 'America/Argentina/Buenos_Aires'
+  const tz = timezone ?? prefs?.timezone ?? USER_TIMEZONE
   return findFreeSlots(events, date, prefs?.workdayStart ?? '09:00', prefs?.workdayEnd ?? '18:00', 30, tz)
 }
 
@@ -32,7 +34,7 @@ export async function getDayEventsAndSlots(userId: string, date: Date, timezone?
     prisma.userPreference.findUnique({ where: { userId } }),
     getEventsForDay(userId, date, timezone),
   ])
-  const tz = timezone ?? prefs?.timezone ?? 'America/Argentina/Buenos_Aires'
+  const tz = timezone ?? prefs?.timezone ?? USER_TIMEZONE
   const slots = findFreeSlots(events, date, prefs?.workdayStart ?? '09:00', prefs?.workdayEnd ?? '18:00', 30, tz)
   return { events, slots }
 }
@@ -110,14 +112,18 @@ export async function deleteBlockAndEvent(
   return { deleted: true, wasInGoogle }
 }
 
-export async function getBlocksForDay(userId: string, date: Date) {
-  const start = new Date(date)
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(date)
-  end.setHours(23, 59, 59, 999)
+export async function getBlocksForDay(userId: string, date: Date, timezone = USER_TIMEZONE) {
+  const { startOfDay, endOfDay } = dayRangeInTZ(
+    new Intl.DateTimeFormat('sv', { timeZone: timezone }).format(date),
+    timezone
+  )
 
   return prisma.agendaBlock.findMany({
-    where: { userId, startTime: { gte: start }, endTime: { lte: end } },
+    where: {
+      userId,
+      startTime: { lte: endOfDay },
+      endTime: { gte: startOfDay },
+    },
     orderBy: { startTime: 'asc' },
   })
 }

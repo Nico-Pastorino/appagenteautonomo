@@ -1,6 +1,7 @@
 import { google, calendar_v3 } from 'googleapis'
 import { prisma } from '@/lib/prisma'
-import { localDateStr, startOfDayInTZ, endOfDayInTZ, parseDateTimeInTZ } from '@/lib/dateUtils'
+import { dayRangeInTZ, localDateStr, parseDateTimeInTZ } from '@/lib/dateUtils'
+import { USER_TIMEZONE } from '@/lib/timezone'
 import { CalendarEvent, FreeSlot } from '@/types'
 
 function mapGoogleEvent(item: calendar_v3.Schema$Event): CalendarEvent {
@@ -58,25 +59,30 @@ async function getCalendarClient(userId: string) {
 export async function getEventsForDay(
   userId: string,
   date: Date,
-  timezone = 'America/Argentina/Buenos_Aires'
+  timezone = USER_TIMEZONE
 ): Promise<CalendarEvent[]> {
   const calendar = await getCalendarClient(userId)
 
   const dateStr = localDateStr(date, timezone)
-  const start = startOfDayInTZ(dateStr, timezone)
-  const end = endOfDayInTZ(dateStr, timezone)
+  const { startOfDay, endOfDay, startUTC, endUTC } = dayRangeInTZ(dateStr, timezone)
+
+  console.log('USER TZ:', timezone)
+  console.log('START DAY LOCAL:', `${dateStr}T00:00:00`)
+  console.log('END DAY LOCAL:', `${dateStr}T23:59:59.999`)
+  console.log('START UTC:', startUTC)
+  console.log('END UTC:', endUTC)
 
   const res = await calendar.events.list({
     calendarId: 'primary',
-    timeMin: start.toISOString(),
-    timeMax: end.toISOString(),
+    timeMin: startUTC,
+    timeMax: endUTC,
     singleEvents: true,
     orderBy: 'startTime',
     maxResults: 50,
   })
 
   const events = (res.data.items ?? []).map(mapGoogleEvent)
-  console.log(`[calendar] EVENTOS REALES userId=${userId} date=${date.toDateString()} →`, JSON.stringify(events.map(e => ({ title: e.title, start: e.start }))))
+  console.log(`[calendar] EVENTOS REALES userId=${userId} date=${dateStr} start=${startOfDay.toISOString()} end=${endOfDay.toISOString()} →`, JSON.stringify(events.map(e => ({ title: e.title, start: e.start }))))
   return events
 }
 
@@ -110,13 +116,16 @@ export async function createCalendarEvent(
 ): Promise<string> {
   const calendar = await getCalendarClient(userId)
 
+  const startUTC = event.startTime.toISOString()
+  const endUTC = event.endTime.toISOString()
+
   const res = await calendar.events.insert({
     calendarId: 'primary',
     requestBody: {
       summary: event.title,
       description: event.description,
-      start: { dateTime: event.startTime.toISOString() },
-      end: { dateTime: event.endTime.toISOString() },
+      start: { dateTime: startUTC },
+      end: { dateTime: endUTC },
     },
   })
 
@@ -144,7 +153,7 @@ export function findFreeSlots(
   workdayStart = '09:00',
   workdayEnd = '18:00',
   minSlotMinutes = 30,
-  timezone = 'America/Argentina/Buenos_Aires'
+  timezone = USER_TIMEZONE
 ): FreeSlot[] {
   const dateStr = localDateStr(date, timezone)
   const dayStart = parseDateTimeInTZ(`${dateStr}T${workdayStart}:00`, timezone)

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { getToolsForModule, getValidToolNames } from './tools'
 import { executeTool } from './toolExecutor'
 import { buildAgendaSystemPrompt } from '@/modules/agenda/prompts/agenda.prompt'
+import { USER_TIMEZONE } from '@/lib/timezone'
 import type { ModuleKey } from '@/types'
 import type { Message } from '@prisma/client'
 
@@ -73,7 +74,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   const {
     userId, conversationId, userMessage, module,
     userName,
-    timezone = 'America/Argentina/Buenos_Aires',
+    timezone = USER_TIMEZONE,
     workdayStart = '09:00',
     workdayEnd = '18:00',
   } = options

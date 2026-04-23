@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { runAgent, getOrCreateConversation } from '@/lib/ai/agent'
 import { prisma } from '@/lib/prisma'
+import { USER_TIMEZONE } from '@/lib/timezone'
 import type { ModuleKey } from '@/types'
 
 export async function POST(req: NextRequest) {
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest) {
       userMessage: message,
       module: moduleKey,
       userName: session.user.name ?? 'Usuario',
-      timezone: prefs?.timezone ?? 'America/Argentina/Buenos_Aires',
+      timezone: prefs?.timezone ?? USER_TIMEZONE,
       workdayStart: prefs?.workdayStart ?? '09:00',
       workdayEnd: prefs?.workdayEnd ?? '18:00',
     })

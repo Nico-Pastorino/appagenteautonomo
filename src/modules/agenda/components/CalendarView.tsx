@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { formatTime } from '@/lib/utils'
+import { USER_TIMEZONE } from '@/lib/timezone'
 import { RefreshCw, Trash2 } from 'lucide-react'
 
 interface CalendarEvent {
@@ -43,7 +44,7 @@ export function CalendarView() {
     setLoading(true)
     setError(null)
     try {
-      const dateStr = date.toLocaleDateString('sv')
+      const dateStr = new Intl.DateTimeFormat('sv', { timeZone: USER_TIMEZONE }).format(date)
       const res = await fetch(`/api/agenda/events?date=${dateStr}`)
       const data = await res.json()
       if (data.error) throw new Error(data.error)
@@ -102,7 +103,7 @@ export function CalendarView() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium" style={{ color: 'var(--muted)' }}>
-          {date.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })}
+          {date.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', timeZone: USER_TIMEZONE })}
         </h3>
         <button onClick={fetchEvents} className="p-1.5 rounded-lg transition-colors hover:bg-white/5">
           <RefreshCw size={14} style={{ color: 'var(--muted)' }} />
@@ -130,7 +131,7 @@ export function CalendarView() {
                   {event.title}
                 </p>
                 <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-                  {formatTime(new Date(event.start))} — {formatTime(new Date(event.end))}
+                  {formatTime(new Date(event.start), USER_TIMEZONE)} — {formatTime(new Date(event.end), USER_TIMEZONE)}
                 </p>
               </div>
               <span className="text-xs px-2 py-0.5 rounded-full shrink-0" style={{ background: 'var(--surface)', color: 'var(--muted)' }}>
@@ -154,7 +155,7 @@ export function CalendarView() {
                   {block.title}
                 </p>
                 <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-                  {formatTime(new Date(block.startTime))} — {formatTime(new Date(block.endTime))}
+                  {formatTime(new Date(block.startTime), USER_TIMEZONE)} — {formatTime(new Date(block.endTime), USER_TIMEZONE)}
                 </p>
               </div>
               <span className="text-xs px-2 py-0.5 rounded-full shrink-0" style={{

@@ -67,9 +67,10 @@ export function AgendaChat() {
         body: JSON.stringify({ message: text, module: 'AGENDA' }),
       })
 
-      let data: { response?: string; error?: string; blockCreated?: boolean }
+      let data: { message?: string; error?: string; blockCreated?: boolean }
       try {
         data = await res.json()
+        console.log('API RESPONSE:', data)
       } catch {
         throw new Error(`El servidor devolvió HTTP ${res.status} (respuesta no JSON). Revisá /api/ai/health`)
       }
@@ -78,13 +79,13 @@ export function AgendaChat() {
         throw new Error(data.error ?? `Error HTTP ${res.status}`)
       }
 
-      const responseText = data.response?.trim() ?? ''
+      const responseText = data.message?.trim() ?? 'Estoy teniendo un problema técnico, intenta nuevamente'
       setMessages((prev) => [
         ...prev,
         {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
-          content: responseText || '(Sin respuesta del asistente)',
+          content: responseText,
           createdAt: new Date(),
         },
       ])
@@ -100,7 +101,7 @@ export function AgendaChat() {
         {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
-          content: `Error: ${errorMsg}`,
+          content: 'Estoy teniendo un problema técnico, intenta nuevamente',
           createdAt: new Date(),
         },
       ])

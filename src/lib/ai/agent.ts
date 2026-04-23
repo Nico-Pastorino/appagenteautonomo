@@ -19,9 +19,11 @@ interface RunAgentOptions {
 }
 
 interface AgentResult {
-  response: string
+  message: string
   blockCreated?: boolean
 }
+
+const FALLBACK_MESSAGE = 'Estoy teniendo un problema técnico, intenta nuevamente'
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
@@ -69,150 +71,156 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   } = options
 
   console.log(`[agent] start userId=${userId} module=${module} message="${userMessage}"`)
+  console.log('USER MESSAGE:', userMessage)
 
-  await prisma.message.create({
-    data: { conversationId, role: 'USER', content: userMessage },
-  })
-
-  const history = await prisma.message.findMany({
-    where: { conversationId, role: { in: ['USER', 'ASSISTANT'] } },
-    orderBy: { createdAt: 'asc' },
-    take: 10,
-  })
-
-  const systemPrompt = buildSystemPrompt(module, { userName, timezone, workdayStart, workdayEnd })
-  const tools = getToolsForModule(module)
-  const validToolNames = getValidToolNames(module)
-
-  const isScheduling = tools.length > 0 && SCHEDULING_RE.test(userMessage)
-  const isDelete = tools.length > 0 && DELETE_RE.test(userMessage)
-  const isQuery = tools.length > 0 && QUERY_RE.test(userMessage)
-  const mustUseTool = isScheduling || isDelete || isQuery
-
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: 'system', content: systemPrompt },
-    ...history.map((m: Message) => ({
-      role: m.role.toLowerCase() as 'user' | 'assistant',
-      content: m.content as string,
-    })),
-  ]
-
-  let blockCreated = false
-
-  for (let i = 0; i < 5; i++) {
-    let toolChoice: OpenAI.Chat.ChatCompletionToolChoiceOption | undefined
-    if (!tools.length) {
-      toolChoice = undefined
-    } else if (i === 0 && isScheduling) {
-      toolChoice = { type: 'function', function: { name: 'propose_block' } }
-    } else if (i === 0 && isQuery && !isDelete) {
-      toolChoice = { type: 'function', function: { name: 'get_day_events' } }
-    } else if (i === 0 && mustUseTool) {
-      toolChoice = 'required'
-    } else {
-      toolChoice = 'auto'
-    }
-
-    console.log(`[agent] iteration=${i} toolChoice=${JSON.stringify(toolChoice)}`)
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages,
-      tools: tools.length > 0 ? tools : undefined,
-      tool_choice: toolChoice,
+  try {
+    await prisma.message.create({
+      data: { conversationId, role: 'USER', content: userMessage },
     })
 
-    const choice = completion.choices[0]
-    console.log(`[agent] finish_reason=${choice.finish_reason} tool_calls=${choice.message.tool_calls?.length ?? 0}`)
+    const history = await prisma.message.findMany({
+      where: { conversationId, role: { in: ['USER', 'ASSISTANT'] } },
+      orderBy: { createdAt: 'asc' },
+      take: 10,
+    })
 
-    if (choice.finish_reason === 'stop' || !choice.message.tool_calls?.length) {
-      let finalContent = choice.message.content ?? ''
+    const systemPrompt = buildSystemPrompt(module, { userName, timezone, workdayStart, workdayEnd })
+    const tools = getToolsForModule(module)
+    const validToolNames = getValidToolNames(module)
 
-      // gpt-4o-mini sometimes returns null content after tool calls — force a text response
-      if (!finalContent && i > 0) {
-        console.log('[agent] empty content after tool execution — forcing summary call')
-        const summaryCompletion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: [
-            ...messages,
-            {
-              role: 'user',
-              content: 'Confirmame en una sola frase qué acción realizaste o qué encontraste.',
-            },
-          ],
-          tool_choice: 'none',
-        })
-        finalContent = summaryCompletion.choices[0].message.content ?? ''
+    const isScheduling = tools.length > 0 && SCHEDULING_RE.test(userMessage)
+    const isDelete = tools.length > 0 && DELETE_RE.test(userMessage)
+    const isQuery = tools.length > 0 && QUERY_RE.test(userMessage)
+    const mustUseTool = isScheduling || isDelete || isQuery
+
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
+      ...history.map((m: Message) => ({
+        role: m.role.toLowerCase() as 'user' | 'assistant',
+        content: m.content as string,
+      })),
+    ]
+
+    let blockCreated = false
+
+    for (let i = 0; i < 5; i++) {
+      let toolChoice: OpenAI.Chat.ChatCompletionToolChoiceOption | undefined
+      if (!tools.length) {
+        toolChoice = undefined
+      } else if (i === 0 && isScheduling) {
+        toolChoice = { type: 'function', function: { name: 'propose_block' } }
+      } else if (i === 0 && isQuery && !isDelete) {
+        toolChoice = { type: 'function', function: { name: 'get_day_events' } }
+      } else if (i === 0 && mustUseTool) {
+        toolChoice = 'required'
+      } else {
+        toolChoice = 'auto'
       }
 
-      if (!finalContent) {
-        finalContent = blockCreated
-          ? 'Listo, el evento fue creado en tu calendario.'
-          : 'No encontré información para esa consulta.'
-      }
+      console.log(`[agent] iteration=${i} toolChoice=${JSON.stringify(toolChoice)}`)
+      console.log('SENDING TO OPENAI:', messages)
 
-      await prisma.message.create({
-        data: { conversationId, role: 'ASSISTANT', content: finalContent },
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages,
+        tools: tools.length > 0 ? tools : undefined,
+        tool_choice: toolChoice,
       })
-      console.log(`[agent] done response="${finalContent.slice(0, 80)}"`)
-      return { response: finalContent, blockCreated }
-    }
+      console.log('OPENAI RAW RESPONSE:', response)
 
-    messages.push(choice.message)
+      const message = response.choices[0]?.message
+      console.log('[agent] response message:', message)
+      console.log('[agent] response content:', message?.content)
+      console.log('[agent] response tool_calls:', message?.tool_calls)
 
-    for (const tc of choice.message.tool_calls) {
-      const fn = (tc as OpenAI.Chat.ChatCompletionMessageFunctionToolCall).function
-      let args: Record<string, unknown> = {}
+      if (!message) {
+        throw new Error('OpenAI no devolvió response.choices[0].message')
+      }
 
-      try {
-        args = JSON.parse(fn.arguments) as Record<string, unknown>
-      } catch {
-        console.error(`[agent] invalid JSON in tool args for "${fn.name}":`, fn.arguments)
+      const toolCalls = message.tool_calls ?? []
+      console.log(`[agent] finish_reason=${response.choices[0]?.finish_reason} tool_calls=${toolCalls.length}`)
+
+      if (toolCalls.length === 0) {
+        const finalContent = normalizeFinalText(message.content, blockCreated)
+
+        await prisma.message.create({
+          data: { conversationId, role: 'ASSISTANT', content: finalContent },
+        })
+        console.log(`[agent] done message="${finalContent.slice(0, 80)}"`)
+        return { message: finalContent, blockCreated }
+      }
+
+      messages.push(message)
+
+      for (const tc of toolCalls) {
+        const fn = (tc as OpenAI.Chat.ChatCompletionMessageFunctionToolCall).function
+        let args: Record<string, unknown> = {}
+
+        try {
+          args = JSON.parse(fn.arguments) as Record<string, unknown>
+        } catch {
+          console.error(`[agent] invalid JSON in tool args for "${fn.name}":`, fn.arguments)
+          messages.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            content: JSON.stringify({ error: 'JSON inválido en arguments' }),
+          })
+          continue
+        }
+
+        let result: unknown
+        try {
+          result = await executeTool(fn.name, args, userId, validToolNames)
+        } catch (err) {
+          console.error(`[agent] tool execution error for "${fn.name}":`, err)
+          result = { error: err instanceof Error ? err.message : 'Error al ejecutar herramienta' }
+        }
+
+        const normalizedName = fn.name.replace(/^_+/, '')
+        if (normalizedName === 'propose_block' && (result as Record<string, unknown>)?.created) {
+          blockCreated = true
+        }
+
+        await prisma.message.create({
+          data: {
+            conversationId,
+            role: 'TOOL',
+            content: JSON.stringify(result),
+            toolName: normalizedName,
+            toolInput: args as unknown as import('@prisma/client').Prisma.InputJsonValue,
+            toolOutput: result as unknown as import('@prisma/client').Prisma.InputJsonValue,
+          },
+        })
+
         messages.push({
           role: 'tool',
           tool_call_id: tc.id,
-          content: JSON.stringify({ error: 'JSON inválido en arguments' }),
-        })
-        continue
-      }
-
-      let result: unknown
-      try {
-        result = await executeTool(fn.name, args, userId, validToolNames)
-      } catch (err) {
-        console.error(`[agent] tool execution error for "${fn.name}":`, err)
-        result = { error: err instanceof Error ? err.message : 'Error al ejecutar herramienta' }
-      }
-
-      const normalizedName = fn.name.replace(/^_+/, '')
-      if (normalizedName === 'propose_block' && (result as Record<string, unknown>)?.created) {
-        blockCreated = true
-      }
-
-      await prisma.message.create({
-        data: {
-          conversationId,
-          role: 'TOOL',
           content: JSON.stringify(result),
-          toolName: normalizedName,
-          toolInput: args as unknown as import('@prisma/client').Prisma.InputJsonValue,
-          toolOutput: result as unknown as import('@prisma/client').Prisma.InputJsonValue,
-        },
-      })
-
-      messages.push({
-        role: 'tool',
-        tool_call_id: tc.id,
-        content: JSON.stringify(result),
-      })
+        })
+      }
     }
-  }
 
-  console.warn(`[agent] exhausted iterations for userId=${userId}`)
-  return {
-    response: 'No pude completar la solicitud. Por favor intentá de nuevo.',
-    blockCreated,
+    console.warn(`[agent] exhausted iterations for userId=${userId}`)
+    return {
+      message: FALLBACK_MESSAGE,
+      blockCreated,
+    }
+  } catch (error) {
+    console.error('[agent] failed:', error)
+    await prisma.message.create({
+      data: { conversationId, role: 'ASSISTANT', content: FALLBACK_MESSAGE },
+    }).catch((persistError) => {
+      console.error('[agent] failed to persist fallback:', persistError)
+    })
+    return { message: FALLBACK_MESSAGE, blockCreated: false }
   }
+}
+
+function normalizeFinalText(content: string | null | undefined, blockCreated: boolean): string {
+  const finalText = content?.trim()
+  if (finalText) return finalText
+  if (blockCreated) return 'Listo, el evento fue creado en tu calendario.'
+  return FALLBACK_MESSAGE
 }
 
 // ── Conversation ──────────────────────────────────────────────────────────────

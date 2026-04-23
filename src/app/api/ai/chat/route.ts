@@ -9,6 +9,7 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
+  console.log('REQUEST BODY:', body)
   const { message, module: requestedModule = 'AGENDA' } = body as { message: string; module: ModuleKey }
   const moduleKey = requestedModule
 
@@ -34,15 +35,17 @@ export async function POST(req: NextRequest) {
       workdayEnd: prefs?.workdayEnd ?? '18:00',
     })
 
-    return NextResponse.json({
-      response: result.response,
+    return Response.json({
+      message: result.message,
       blockCreated: result.blockCreated ?? false,
       conversationId: conversation.id,
     })
   } catch (error) {
     console.error('[ai/chat]', error)
-    const message = error instanceof Error ? error.message : 'Error desconocido'
-    return NextResponse.json({ error: message }, { status: 500 })
+    return Response.json({
+      message: 'Estoy teniendo un problema técnico, intenta nuevamente',
+      blockCreated: false,
+    })
   }
 }
 

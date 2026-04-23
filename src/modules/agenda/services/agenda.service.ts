@@ -50,6 +50,7 @@ export async function confirmAndCreateBlock(
     itemType?: 'event' | 'task' | 'reminder'
     syncToGoogle?: boolean
     reminderAt?: Date
+    timezone?: string
   }
 ) {
   let externalId: string | undefined
@@ -61,6 +62,7 @@ export async function confirmAndCreateBlock(
         description: block.description,
         startTime: block.startTime,
         endTime: block.endTime,
+        timezone: block.timezone,
       })
     } catch {
       // Si falla la sync, igual guardamos localmente

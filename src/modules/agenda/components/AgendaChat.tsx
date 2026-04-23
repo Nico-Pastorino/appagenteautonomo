@@ -64,7 +64,11 @@ export function AgendaChat() {
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, module: 'AGENDA' }),
+        body: JSON.stringify({
+          message: text,
+          module: 'AGENDA',
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
       })
 
       let data: { message?: string; error?: string; blockCreated?: boolean }

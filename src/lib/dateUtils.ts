@@ -58,16 +58,18 @@ export function dayRangeInTZ(dateStr: string, timezone = USER_TIMEZONE) {
 }
 
 /**
- * Parses an ISO datetime string in the given timezone.
- * If the string already carries a timezone (Z or ±HH:MM) it is used as-is.
- * If not (e.g. "2026-04-23T12:00:00"), the user's offset is applied so the
- * result is always correct regardless of server timezone.
+ * Parses an ISO datetime string, always treating the time as the user's local
+ * timezone regardless of any offset suffix the AI may have included.
+ *
+ * The AI is instructed to write times in local time (e.g. "12:00") but
+ * sometimes attaches the wrong offset (+00:00 instead of -03:00). Trusting
+ * the offset would shift the stored UTC time by hours. We strip it and always
+ * interpret the hour literally as the user's local time.
  */
 export function parseDateTimeInTZ(str: string, timezone = USER_TIMEZONE): Date {
-  if (str.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(str)) {
-    return new Date(str)
-  }
-  const [datePart, timePart = '00:00:00'] = str.split('T')
+  // Strip Z or ±HH:MM — keep only the bare datetime part
+  const bare = str.replace(/Z$/, '').replace(/[+-]\d{2}:\d{2}$/, '')
+  const [datePart, timePart = '00:00:00'] = bare.split('T')
   const [year, month, day] = datePart.split('-').map(Number)
   const [hour = 0, minute = 0, second = 0] = timePart.split(':').map(Number)
   const normalized = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`
@@ -77,6 +79,11 @@ export function parseDateTimeInTZ(str: string, timezone = USER_TIMEZONE): Date {
 /** Returns the current moment (same as new Date() but self-documents intent). */
 export function getNow(): Date {
   return new Date()
+}
+
+/** Returns "YYYY-MM-DDTHH:mm:ss" in the given timezone — no offset suffix, suitable for Google Calendar dateTime + timeZone pair. */
+export function localDateTimeStr(date: Date, timezone = USER_TIMEZONE): string {
+  return format(date, "yyyy-MM-dd'T'HH:mm:ss", { timeZone: timezone })
 }
 
 /** Adds n days to a date and returns the YYYY-MM-DD string in the given timezone. */

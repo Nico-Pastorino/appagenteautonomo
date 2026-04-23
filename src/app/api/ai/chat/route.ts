@@ -10,8 +10,11 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  console.log('REQUEST BODY:', body)
-  const { message, module: requestedModule = 'AGENDA' } = body as { message: string; module: ModuleKey }
+  const { message, module: requestedModule = 'AGENDA', timezone: clientTimezone } = body as {
+    message: string
+    module: ModuleKey
+    timezone?: string
+  }
   const moduleKey = requestedModule
 
   if (!message?.trim()) {
@@ -23,6 +26,10 @@ export async function POST(req: NextRequest) {
       where: { userId: session.user.id },
     })
 
+    // Priority: client device TZ → saved user prefs TZ → hardcoded fallback
+    const timezone = clientTimezone ?? prefs?.timezone ?? USER_TIMEZONE
+    console.log(`[chat] TIMEZONE resolved: client="${clientTimezone}" prefs="${prefs?.timezone}" using="${timezone}"`)
+
     const conversation = await getOrCreateConversation(session.user.id, moduleKey)
 
     const result = await runAgent({
@@ -31,7 +38,7 @@ export async function POST(req: NextRequest) {
       userMessage: message,
       module: moduleKey,
       userName: session.user.name ?? 'Usuario',
-      timezone: prefs?.timezone ?? USER_TIMEZONE,
+      timezone,
       workdayStart: prefs?.workdayStart ?? '09:00',
       workdayEnd: prefs?.workdayEnd ?? '18:00',
     })

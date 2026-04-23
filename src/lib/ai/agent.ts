@@ -6,7 +6,6 @@ import { executeTool } from './toolExecutor'
 import { buildAgendaSystemPrompt } from '@/modules/agenda/prompts/agenda.prompt'
 import { USER_TIMEZONE } from '@/lib/timezone'
 import type { ModuleKey } from '@/types'
-import type { Message } from '@prisma/client'
 
 interface RunAgentOptions {
   userId: string
@@ -87,13 +86,6 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       data: { conversationId, role: 'USER', content: userMessage },
     })
 
-    const historyRaw = await prisma.message.findMany({
-      where: { conversationId, role: { in: ['USER', 'ASSISTANT'] } },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-    })
-    const history = historyRaw.reverse()
-
     const systemPrompt = buildSystemPrompt(module, { userName, timezone, workdayStart, workdayEnd })
     const tools = getToolsForModule(module)
     const validToolNames = getValidToolNames(module)
@@ -105,10 +97,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
-      ...history.map((m: Message) => ({
-        role: m.role.toLowerCase() as 'user' | 'assistant',
-        content: m.content as string,
-      })),
+      { role: 'user', content: userMessage },
     ]
 
     let blockCreated = false

@@ -5,7 +5,7 @@ import {
   confirmAndCreateBlock,
   deleteBlockAndEvent,
 } from '@/modules/agenda/services/agenda.service'
-import { localDateStr, startOfDayInTZ, parseDateTimeInTZ } from '@/lib/dateUtils'
+import { localDateStr, localTimeStr, localDateTimeStr, startOfDayInTZ, parseDateTimeInTZ } from '@/lib/dateUtils'
 import { USER_TIMEZONE } from '@/lib/timezone'
 import type { CalendarEvent, FreeSlot, BlockType } from '@/types'
 
@@ -140,23 +140,28 @@ export async function executeTool(
         itemType,
         syncToGoogle,
         reminderAt: itemType === 'reminder' ? startTime : undefined,
+        timezone,
       })
+
+      const startLocal = localTimeStr(block.startTime, timezone)
+      const endLocal = localTimeStr(block.endTime, timezone)
+      const dateLocal = localDateStr(block.startTime, timezone)
 
       const confirmMsg =
         itemType === 'task'
-          ? `Creé la tarea: "${block.title}".`
+          ? `Creé la tarea: "${block.title}" para el ${dateLocal}.`
           : itemType === 'reminder'
-          ? `Te voy a recordar "${block.title}" el ${block.startTime.toLocaleDateString('es', { timeZone: timezone })}.`
-          : `Agendé "${block.title}" en tu calendario.`
+          ? `Te voy a recordar "${block.title}" el ${dateLocal} a las ${startLocal}.`
+          : `Agendé "${block.title}" el ${dateLocal} de ${startLocal} a ${endLocal}.`
 
-      console.log(`[toolExecutor] propose_block → created blockId=${block.id} itemType=${itemType}`)
+      console.log(`[toolExecutor] propose_block → created blockId=${block.id} itemType=${itemType} startLocal=${startLocal} startUTC=${block.startTime.toISOString()}`)
       return {
         created: true,
         blockId: block.id,
         itemType,
         title: block.title,
-        startTime: block.startTime.toISOString(),
-        endTime: block.endTime.toISOString(),
+        startTime: localDateTimeStr(block.startTime, timezone),
+        endTime: localDateTimeStr(block.endTime, timezone),
         syncedToGoogle: !!block.externalId,
         message: confirmMsg,
       }

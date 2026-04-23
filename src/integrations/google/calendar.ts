@@ -1,6 +1,6 @@
 import { google, calendar_v3 } from 'googleapis'
 import { prisma } from '@/lib/prisma'
-import { dayRangeInTZ, localDateStr, parseDateTimeInTZ } from '@/lib/dateUtils'
+import { dayRangeInTZ, localDateStr, localDateTimeStr, parseDateTimeInTZ } from '@/lib/dateUtils'
 import { USER_TIMEZONE } from '@/lib/timezone'
 import { CalendarEvent, FreeSlot } from '@/types'
 
@@ -112,20 +112,24 @@ export async function createCalendarEvent(
     description?: string
     startTime: Date
     endTime: Date
+    timezone?: string
   }
 ): Promise<string> {
   const calendar = await getCalendarClient(userId)
+  const tz = event.timezone ?? USER_TIMEZONE
 
-  const startUTC = event.startTime.toISOString()
-  const endUTC = event.endTime.toISOString()
+  const startLocal = localDateTimeStr(event.startTime, tz)
+  const endLocal = localDateTimeStr(event.endTime, tz)
+
+  console.log(`[calendar] createCalendarEvent tz=${tz} start="${startLocal}" end="${endLocal}"`)
 
   const res = await calendar.events.insert({
     calendarId: 'primary',
     requestBody: {
       summary: event.title,
       description: event.description,
-      start: { dateTime: startUTC },
-      end: { dateTime: endUTC },
+      start: { dateTime: startLocal, timeZone: tz },
+      end: { dateTime: endLocal, timeZone: tz },
     },
   })
 

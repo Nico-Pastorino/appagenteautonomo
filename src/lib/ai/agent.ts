@@ -26,6 +26,11 @@ interface AgentResult {
 const MODEL = 'gpt-4o-mini' as const
 const FALLBACK_MESSAGE = 'Estoy teniendo un problema técnico, intenta nuevamente'
 const SUMMARY_PROMPT = 'En base al resultado anterior, respondé al usuario en 1-2 oraciones qué encontraste o hiciste.'
+const DEBUG_AGENT = process.env.DEBUG_AGENT === 'true' || process.env.NODE_ENV !== 'production'
+
+function debugLog(...args: unknown[]) {
+  if (DEBUG_AGENT) console.log(...args)
+}
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
@@ -78,8 +83,8 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     workdayEnd = '18:00',
   } = options
 
-  console.log(`[agent] start userId=${userId} module=${module} message="${userMessage}"`)
-  console.log('USER MESSAGE:', userMessage)
+  debugLog(`[agent] start userId=${userId} module=${module} message="${userMessage}"`)
+  debugLog('USER MESSAGE:', userMessage)
 
   try {
     await prisma.message.create({
@@ -116,8 +121,8 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
         toolChoice = 'auto'
       }
 
-      console.log(`[agent] iteration=${i} toolChoice=${JSON.stringify(toolChoice)}`)
-      console.log('SENDING TO OPENAI:', messages)
+      debugLog(`[agent] iteration=${i} toolChoice=${JSON.stringify(toolChoice)}`)
+      debugLog('SENDING TO OPENAI:', messages)
 
       const response = await openai.chat.completions.create({
         model: MODEL,
@@ -125,26 +130,26 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
         tools: tools.length > 0 ? tools : undefined,
         tool_choice: toolChoice,
       })
-      console.log('OPENAI RAW RESPONSE:', response)
+      debugLog('OPENAI RAW RESPONSE:', response)
 
       const message = response.choices[0]?.message
-      console.log('[agent] response message:', message)
-      console.log('[agent] response content:', message?.content)
-      console.log('[agent] response tool_calls:', message?.tool_calls)
+      debugLog('[agent] response message:', message)
+      debugLog('[agent] response content:', message?.content)
+      debugLog('[agent] response tool_calls:', message?.tool_calls)
 
       if (!message) {
         throw new Error('OpenAI no devolvió response.choices[0].message')
       }
 
       const toolCalls = message.tool_calls ?? []
-      console.log(`[agent] finish_reason=${response.choices[0]?.finish_reason} tool_calls=${toolCalls.length}`)
+      debugLog(`[agent] finish_reason=${response.choices[0]?.finish_reason} tool_calls=${toolCalls.length}`)
 
       if (toolCalls.length === 0) {
         let rawContent = message.content
 
         if (!rawContent?.trim() && i > 0) {
           // gpt-4o-mini returns content: null after tool calls — force a summary
-          console.log('[agent] null content after tool — forcing summary call')
+          debugLog('[agent] null content after tool — forcing summary call')
           const summaryRes = await openai.chat.completions.create({
             model: MODEL,
             messages: [...messages, { role: 'user', content: SUMMARY_PROMPT }],
@@ -158,7 +163,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
         await prisma.message.create({
           data: { conversationId, role: 'ASSISTANT', content: finalContent },
         })
-        console.log(`[agent] done message="${finalContent.slice(0, 80)}"`)
+        debugLog(`[agent] done message="${finalContent.slice(0, 80)}"`)
         return { message: finalContent, blockCreated }
       }
 
